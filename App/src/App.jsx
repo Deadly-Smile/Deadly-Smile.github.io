@@ -85,21 +85,15 @@ const App = () => {
                         <AiFillLinkedin />
                       </a>
                     </li>
-                    {/* <li className="animate-custom-bounce custom-bounce-small">
-                      <a
-                        href="https://www.mailto:aniksaha200r@gmail.com"
-                        className=" hover:text-teal-300"
-                      >
-                        <AiTwotoneMail />
-                      </a>
-                    </li> */}
                   </ul>
                 </div>
 
-                <div className="my-8">
-                  <p className="text-5xl font-thin text-lime-50">Skills</p>
+                <div className="my-4">
+                  <p className="text-5xl font-thin text-lime-50 my-6">SKILLS</p>
+                  <div className="block ml-auto mr-auto w-4/12 h-1 bg-slate-400 rounded-md" />
                   <p className="text-3xl font-thin text-lime-50 mt-4">
-                    Programming Languages
+                    {/* Programming Languages */}
+                    PROGRAMMING LANGUAGES
                   </p>
                   <div className="rounded-full block ml-auto mr-auto w-8/12 my-6">
                     <ul className="flex justify-between text-4xl">
@@ -171,7 +165,10 @@ const App = () => {
                       </li>
                     </ul>
                   </div>
-                  <p className="text-3xl font-thin text-lime-50">Library</p>
+                  <p className="text-3xl font-thin text-lime-50">
+                    {/* Library */}
+                    LIBRARY
+                  </p>
                   <div className="rounded-full block ml-auto mr-auto w-4/12 my-6">
                     <ul className="flex justify-between text-4xl">
                       <li
