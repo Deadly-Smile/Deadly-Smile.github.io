@@ -6,6 +6,17 @@ import {
   AiFillLinkedin,
   AiTwotoneMail,
 } from "react-icons/ai";
+import {
+  SiCplusplus,
+  SiJavascript,
+  SiPhp,
+  SiCsharp,
+  SiPython,
+  SiLaravel,
+  SiRedux,
+} from "react-icons/si";
+import { FaJava } from "react-icons/fa";
+import { BiLogoReact } from "react-icons/bi";
 const App = () => {
   return (
     <div className="relative">
@@ -17,7 +28,7 @@ const App = () => {
         </div>
         <div className="absolute hero top-2 flex-col justify-center">
           <div className="hero text-center">
-            <div className="max-w-fit">
+            <div className="w-4/5">
               <div className="animate-custom-bounce custom-bounce">
                 <div className="my-8">
                   <p className="text-7xl font-thin text-lime-50">ANIK SAHA</p>
@@ -83,6 +94,121 @@ const App = () => {
                       </a>
                     </li>
                   </ul>
+                </div>
+
+                <div className="my-2">
+                  <p className="text-5xl font-thin text-lime-50">Skills</p>
+                  <p className="text-3xl font-thin text-lime-50">
+                    Programming Languages
+                  </p>
+                  <div className="rounded-full block ml-auto mr-auto w-8/12 my-3">
+                    <ul className="flex justify-between text-4xl">
+                      <li
+                        className="animate-custom-bounce custom-bounce-small"
+                        title="C++"
+                      >
+                        <a
+                          href="https://isocpp.org/"
+                          className="hover:text-teal-300"
+                        >
+                          <SiCplusplus />
+                        </a>
+                      </li>
+                      <li
+                        className="animate-custom-bounce custom-bounce-small"
+                        title="Java"
+                      >
+                        <a
+                          href="https://www.java.com"
+                          className="hover:text-teal-300"
+                        >
+                          <FaJava />
+                        </a>
+                      </li>
+                      <li
+                        className="animate-custom-bounce custom-bounce-small"
+                        title="Javascript"
+                      >
+                        <a
+                          href="https://developer.mozilla.org/en-US/docs/Web/javascript"
+                          className="hover:text-teal-300"
+                        >
+                          <SiJavascript />
+                        </a>
+                      </li>
+                      <li
+                        className="animate-custom-bounce custom-bounce-small"
+                        title="PHP"
+                      >
+                        <a
+                          href="https://www.php.net/"
+                          className="hover:text-teal-300"
+                        >
+                          <SiPhp />
+                        </a>
+                      </li>
+                      <li
+                        className="animate-custom-bounce custom-bounce-small"
+                        title="C#"
+                      >
+                        <a
+                          href="https://dotnet.microsoft.com/en-us/languages/csharp"
+                          className="hover:text-teal-300"
+                        >
+                          <SiCsharp />
+                        </a>
+                      </li>
+                      <li
+                        className="animate-custom-bounce custom-bounce-small"
+                        title="Python"
+                      >
+                        <a
+                          href="https://www.python.org/"
+                          className="hover:text-teal-300"
+                        >
+                          <SiPython />
+                        </a>
+                      </li>
+                    </ul>
+                  </div>
+                  <p className="text-3xl font-thin text-lime-50">Library</p>
+                  <div className="rounded-full block ml-auto mr-auto w-4/12 my-3">
+                    <ul className="flex justify-between text-4xl">
+                      <li
+                        className="animate-custom-bounce custom-bounce-small"
+                        title="React"
+                      >
+                        <a
+                          href="https://react.dev/"
+                          className="hover:text-teal-300"
+                        >
+                          <BiLogoReact />
+                        </a>
+                      </li>
+                      <li
+                        className="animate-custom-bounce custom-bounce-small"
+                        title="Laravel"
+                      >
+                        <a
+                          href="https://laravel.com/"
+                          className="hover:text-teal-300"
+                        >
+                          <SiLaravel />
+                        </a>
+                      </li>
+                      <li
+                        className="animate-custom-bounce custom-bounce-small"
+                        title="Redux"
+                      >
+                        <a
+                          href="https://redux.js.org/"
+                          className="hover:text-teal-300"
+                        >
+                          <SiRedux />
+                        </a>
+                      </li>
+                    </ul>
+                  </div>
                 </div>
               </div>
             </div>
