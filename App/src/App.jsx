@@ -1,10 +1,10 @@
 import Video from "./assets/bg-video.mp4";
-import pic from "./assets/Me.png";
+import pic from "./assets/Me.jpg";
 import {
   AiFillGithub,
   AiFillFacebook,
   AiFillLinkedin,
-  AiTwotoneMail,
+  // AiTwotoneMail,
 } from "react-icons/ai";
 import {
   SiCplusplus,
@@ -37,7 +37,7 @@ const App = () => {
 
                 <img
                   src={pic}
-                  className="rounded-full block ml-auto mr-auto "
+                  className="rounded-full block ml-auto mr-auto max-w-sm"
                 />
                 <p className="mt-2 text-white">
                   A student of{" "}
@@ -59,7 +59,7 @@ const App = () => {
                   collaborate with professionals to learn and explore the
                   fascinating world of software development.`}
                 </p>
-                <div className="rounded-full block ml-auto mr-auto w-4/12 my-3">
+                <div className="rounded-full block ml-auto mr-auto w-3/12 my-3">
                   <ul className="flex justify-between text-4xl">
                     <li className="animate-custom-bounce custom-bounce-small">
                       <a
@@ -85,18 +85,18 @@ const App = () => {
                         <AiFillLinkedin />
                       </a>
                     </li>
-                    <li className="animate-custom-bounce custom-bounce-small">
+                    {/* <li className="animate-custom-bounce custom-bounce-small">
                       <a
                         href="https://www.mailto:aniksaha200r@gmail.com"
                         className=" hover:text-teal-300"
                       >
                         <AiTwotoneMail />
                       </a>
-                    </li>
+                    </li> */}
                   </ul>
                 </div>
 
-                <div className="my-2">
+                <div className="my-4">
                   <p className="text-5xl font-thin text-lime-50">Skills</p>
                   <p className="text-3xl font-thin text-lime-50">
                     Programming Languages
@@ -209,6 +209,12 @@ const App = () => {
                       </li>
                     </ul>
                   </div>
+                  <a
+                    className="btn btn-outline btn-success btn-wide font-thin text-2xl shadow-ping"
+                    href="mailto:aniksaha200r@gmail.com"
+                  >
+                    MAIL ME
+                  </a>
                 </div>
               </div>
             </div>
