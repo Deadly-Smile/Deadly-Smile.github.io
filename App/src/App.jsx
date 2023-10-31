@@ -59,7 +59,7 @@ const App = () => {
                   collaborate with professionals to learn and explore the
                   fascinating world of software development.`}
                 </p>
-                <div className="rounded-full block ml-auto mr-auto w-3/12 my-3">
+                <div className="rounded-full block ml-auto mr-auto w-3/12 my-5">
                   <ul className="flex justify-between text-4xl">
                     <li className="animate-custom-bounce custom-bounce-small">
                       <a
@@ -96,12 +96,12 @@ const App = () => {
                   </ul>
                 </div>
 
-                <div className="my-4">
+                <div className="my-8">
                   <p className="text-5xl font-thin text-lime-50">Skills</p>
-                  <p className="text-3xl font-thin text-lime-50">
+                  <p className="text-3xl font-thin text-lime-50 mt-4">
                     Programming Languages
                   </p>
-                  <div className="rounded-full block ml-auto mr-auto w-8/12 my-3">
+                  <div className="rounded-full block ml-auto mr-auto w-8/12 my-6">
                     <ul className="flex justify-between text-4xl">
                       <li
                         className="animate-custom-bounce custom-bounce-small"
@@ -172,7 +172,7 @@ const App = () => {
                     </ul>
                   </div>
                   <p className="text-3xl font-thin text-lime-50">Library</p>
-                  <div className="rounded-full block ml-auto mr-auto w-4/12 my-3">
+                  <div className="rounded-full block ml-auto mr-auto w-4/12 my-6">
                     <ul className="flex justify-between text-4xl">
                       <li
                         className="animate-custom-bounce custom-bounce-small"
