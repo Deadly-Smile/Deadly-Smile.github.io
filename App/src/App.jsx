@@ -14,6 +14,9 @@ import {
   SiPython,
   SiLaravel,
   SiRedux,
+  SiLeetcode,
+  SiCodeforces,
+  SiGeeksforgeeks,
 } from "react-icons/si";
 import { FaJava } from "react-icons/fa";
 import { BiLogoReact } from "react-icons/bi";
@@ -96,7 +99,7 @@ const App = () => {
                     {/* Programming Languages */}
                     PROGRAMMING LANGUAGES
                   </p>
-                  <div className="rounded-full block ml-auto mr-auto w-8/12 my-6">
+                  <div className="rounded-full block ml-auto mr-auto w-7/12 my-6">
                     <ul className="flex justify-between text-4xl">
                       <li
                         className="animate-custom-bounce custom-bounce-small"
@@ -167,10 +170,51 @@ const App = () => {
                     </ul>
                   </div>
                   <p className="text-3xl font-thin text-lime-50">
+                    {/* Problem Solving */}
+                    PROBLEM SOLVING
+                  </p>
+                  <div className="rounded-full block ml-auto mr-auto w-3/12 my-6">
+                    <ul className="flex justify-between text-4xl">
+                      <li
+                        className="animate-custom-bounce custom-bounce-small"
+                        title="Codeforces"
+                      >
+                        <a
+                          href="https://codeforces.com/profile/Deadly_Smile"
+                          className="hover:text-teal-300"
+                        >
+                          <SiCodeforces />
+                        </a>
+                      </li>
+                      <li
+                        className="animate-custom-bounce custom-bounce-small"
+                        title="LeetCode"
+                      >
+                        <a
+                          href="https://leetcode.com/Serious_Noob/"
+                          className="hover:text-teal-300"
+                        >
+                          <SiLeetcode />
+                        </a>
+                      </li>
+                      <li
+                        className="animate-custom-bounce custom-bounce-small"
+                        title="Redux"
+                      >
+                        <a
+                          href="https://auth.geeksforgeeks.org/user/aniksaha200r/"
+                          className="hover:text-teal-300"
+                        >
+                          <SiGeeksforgeeks />
+                        </a>
+                      </li>
+                    </ul>
+                  </div>
+                  <p className="text-3xl font-thin text-lime-50">
                     {/* Library */}
                     LIBRARY
                   </p>
-                  <div className="rounded-full block ml-auto mr-auto w-4/12 my-6">
+                  <div className="rounded-full block ml-auto mr-auto w-3/12 my-6">
                     <ul className="flex justify-between text-4xl">
                       <li
                         className="animate-custom-bounce custom-bounce-small"
