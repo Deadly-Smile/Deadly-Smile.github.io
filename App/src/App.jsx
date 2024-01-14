@@ -83,7 +83,7 @@ const App = () => {
                     </li>
                     <li className="animate-custom-bounce custom-bounce-small">
                       <a
-                        href="https://www.linkedin.com/in/anik-saha-006698294/"
+                        href="https://www.linkedin.com/in/anik-saha-cse-pust/"
                         className=" hover:text-teal-300"
                       >
                         <AiFillLinkedin />
