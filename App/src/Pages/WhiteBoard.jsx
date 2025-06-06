@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Stage, Layer, Line } from "react-konva";
 import { FaUndo } from "react-icons/fa";
+import { HexColorPicker } from "react-colorful";
 
 const WhiteBoard = () => {
   const [lines, setLines] = useState([]);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
   const [selectedColor, setSelectedColor] = useState("teal");
 
   const handleMouseDown = (e) => {
@@ -17,10 +19,12 @@ const WhiteBoard = () => {
     if (!isDrawing) return;
     const stage = e.target.getStage();
     const point = stage.getPointerPosition();
-    let lastLine = lines[lines.length - 1];
-    lastLine.points = lastLine.points.concat([point.x, point.y]);
-
-    setLines([...lines.slice(0, lines.length - 1), lastLine]);
+    const lastLine = lines[lines.length - 1];
+    const newLine = {
+      ...lastLine,
+      points: [...lastLine.points, point.x, point.y],
+    };
+    setLines([...lines.slice(0, lines.length - 1), newLine]);
   };
 
   const handleMouseUp = () => {
@@ -31,10 +35,6 @@ const WhiteBoard = () => {
     setLines(lines.slice(0, lines.length - 1));
   };
 
-  const handleColorChange = (color) => {
-    setSelectedColor(color);
-  };
-
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.ctrlKey && event.key === "z") {
@@ -43,11 +43,17 @@ const WhiteBoard = () => {
     };
 
     document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [lines]);
 
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (!e.target.closest(".color-picker-container")) {
+        setShowPicker(false);
+      }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   return (
@@ -66,23 +72,32 @@ const WhiteBoard = () => {
               points={line.points}
               stroke={line.color}
               strokeWidth={2}
+              tension={0.5}
+              lineCap="round"
+              globalCompositeOperation="source-over"
             />
           ))}
         </Layer>
       </Stage>
       <div className="fixed inset-x-0 bottom-0 flex justify-center bg-slate-600 p-4">
         <button
-          className="mx-2 px-4 py-2 bg-slate-800 text-white rounded-full text-sm"
           onClick={handleUndo}
+          className="mx-2 flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-slate-800 rounded-full shadow-md transition hover:bg-slate-700 focus:outline-none focus:ring-1 focus:ring-teal focus:ring-offset-2"
         >
-          <FaUndo />
+          <FaUndo className="text-white" />
         </button>
-        <input
-          className="mx-2 rounded-full w-8 border-none"
-          type="color"
-          onChange={(e) => handleColorChange(e.target.value)}
-          value={selectedColor}
-        />
+        <div className="relative">
+          <button
+            onClick={() => setShowPicker(!showPicker)}
+            className="w-8 h-8 rounded-full border border-white"
+            style={{ backgroundColor: selectedColor }}
+          />
+          {showPicker && (
+            <div className="absolute bottom-12 z-10 color-picker-container">
+              <HexColorPicker color={selectedColor} onChange={setSelectedColor} />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
