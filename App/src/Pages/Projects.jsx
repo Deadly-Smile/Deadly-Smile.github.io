@@ -24,15 +24,19 @@ const sampleProjects = [
   },
   {
     id: 2,
-    title: "E-commerce Platform",
-    tech: ["Laravel", "React", "Inertia.js", "MySQL"],
+    title: "Media Tools",
+    tech: ["React", "Ts", "ffmpeg"],
     features: [
-      "Multi-category product support",
-      "Admin dashboard",
-      "Stripe payment integration",
+      "Video trimmer",
+      "Video to GIF converter",
+      "Audio extractor",
+      "Audio adder",
+      "Water mark adder",
     ],
     experience:
-      "Built a scalable backend and intuitive UI. Gained experience with authentication and REST APIs.",
+      "Just found about ffmpeg, seems a cool tool so I made this project for my own use.",
+    github: "https://github.com/Deadly-Smile/Media-Tools",
+    live: "https://media-tools-one.vercel.app/",
   },
   // Add more projects here
 ];
