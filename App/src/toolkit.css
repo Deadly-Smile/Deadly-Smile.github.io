@@ -1,0 +1,391 @@
+/* ================================================================
+   TOOLKIT — add these styles to the bottom of your index.css
+   All classes are prefixed with "tk-" to avoid Tailwind conflicts
+   ================================================================ */
+
+/* ── CSS Variables ── */
+.tk-root {
+  --tk-bg: #0a0a0a;
+  --tk-surface: #111111;
+  --tk-surface2: #1a1a1a;
+  --tk-border: #2a2a2a;
+  --tk-border-bright: #3a3a3a;
+  --tk-accent: #00ff88;
+  --tk-accent2: #ff3366;
+  --tk-accent3: #ffcc00;
+  --tk-text: #e8e8e8;
+  --tk-text-dim: #666;
+  --tk-mono: 'Space Mono', monospace;
+  --tk-display: 'DM Serif Display', serif;
+  --tk-radius: 2px;
+
+  position: relative;
+  background: var(--tk-bg);
+  color: var(--tk-text);
+  font-family: var(--tk-mono);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── Scanline & Noise overlays ── */
+.tk-scanline {
+  position: fixed; inset: 0; z-index: 1000; pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px, transparent 3px,
+    rgba(0,0,0,0.07) 3px, rgba(0,0,0,0.07) 4px
+  );
+}
+.tk-noise {
+  position: fixed; inset: 0; z-index: 999; pointer-events: none;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-size: 128px 128px;
+}
+
+/* ── Header ── */
+.tk-header {
+  display: flex; align-items: center; gap: 2rem;
+  padding: 1.2rem 2rem;
+  border-bottom: 1px solid var(--tk-border);
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(10,10,10,0.95);
+  backdrop-filter: blur(10px);
+  animation: tk-slideDown 0.4s ease;
+}
+@keyframes tk-slideDown {
+  from { transform: translateY(-100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+.tk-logo {
+  font-family: var(--tk-display);
+  font-size: 1.7rem;
+  letter-spacing: -0.02em;
+  color: var(--tk-text);
+}
+.tk-logo span { color: var(--tk-accent); }
+.tk-tagline { color: var(--tk-text-dim); font-size: 0.7rem; letter-spacing: 0.08em; }
+.tk-clock {
+  margin-left: auto;
+  font-size: 0.85rem;
+  color: var(--tk-accent);
+  letter-spacing: 0.15em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Nav ── */
+.tk-tool-nav {
+  display: flex; flex-wrap: wrap;
+  padding: 0 2rem;
+  border-bottom: 1px solid var(--tk-border);
+  background: var(--tk-surface);
+  position: sticky; top: 63px; z-index: 99;
+}
+.tk-nav-btn {
+  background: none; border: none;
+  color: var(--tk-text-dim);
+  font-family: var(--tk-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  padding: 0.9rem 1.1rem;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+}
+.tk-nav-btn:hover { color: var(--tk-text); background: var(--tk-surface2); }
+.tk-nav-btn.tk-active { color: var(--tk-accent); border-bottom-color: var(--tk-accent); }
+
+/* ── Main & Tool Section ── */
+.tk-main { padding: 2rem; max-width: 1400px; margin: 0 auto; }
+.tk-tool-section { animation: tk-fadeIn 0.25s ease; }
+@keyframes tk-fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Tool Header ── */
+.tk-tool-header {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 1rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--tk-border);
+}
+.tk-tool-title {
+  font-family: var(--tk-display);
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: var(--tk-text);
+  margin: 0;
+}
+.tk-tool-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+/* ── Action Button ── */
+.tk-action-btn {
+  background: var(--tk-surface2);
+  border: 1px solid var(--tk-border-bright);
+  color: var(--tk-accent);
+  font-family: var(--tk-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  border-radius: var(--tk-radius);
+  transition: all 0.15s;
+}
+.tk-action-btn:hover { background: var(--tk-accent); color: var(--tk-bg); border-color: var(--tk-accent); }
+.tk-action-btn.tk-danger { color: var(--tk-accent2); border-color: var(--tk-accent2); }
+.tk-action-btn.tk-danger:hover { background: var(--tk-accent2); color: white; }
+
+/* ── Split Pane ── */
+.tk-split-pane {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
+}
+@media (max-width: 768px) { .tk-split-pane { grid-template-columns: 1fr; } }
+.tk-pane { display: flex; flex-direction: column; gap: 0.4rem; }
+.tk-pane-label { font-size: 0.6rem; letter-spacing: 0.15em; color: var(--tk-text-dim); }
+
+/* ── Textarea & Output ── */
+.tk-textarea, .tk-output-pre {
+  background: var(--tk-surface);
+  border: 1px solid var(--tk-border);
+  color: var(--tk-text);
+  font-family: var(--tk-mono);
+  font-size: 0.8rem;
+  line-height: 1.6;
+  padding: 1rem;
+  border-radius: var(--tk-radius);
+  resize: vertical;
+  outline: none;
+  min-height: 240px;
+  transition: border-color 0.15s;
+  width: 100%;
+  box-sizing: border-box;
+}
+.tk-textarea:focus { border-color: var(--tk-accent); }
+.tk-textarea::placeholder { color: var(--tk-text-dim); }
+.tk-output-pre {
+  white-space: pre-wrap; word-break: break-all;
+  overflow-y: auto;
+  margin: 0;
+}
+
+/* ── Status Bar ── */
+.tk-status-bar {
+  margin-top: 0.8rem;
+  font-size: 0.65rem;
+  color: var(--tk-text-dim);
+  letter-spacing: 0.05em;
+  border-left: 2px solid var(--tk-border-bright);
+  padding-left: 0.8rem;
+  min-height: 1.2rem;
+  transition: all 0.2s;
+}
+.tk-status-bar.tk-ok  { color: var(--tk-accent);  border-color: var(--tk-accent); }
+.tk-status-bar.tk-err { color: var(--tk-accent2); border-color: var(--tk-accent2); }
+
+/* ── Regex ── */
+.tk-regex-top {
+  display: flex; align-items: center; gap: 0.8rem;
+  flex-wrap: wrap; margin-bottom: 0;
+}
+.tk-regex-field-wrap {
+  display: flex; align-items: center;
+  background: var(--tk-surface); border: 1px solid var(--tk-border-bright);
+  border-radius: var(--tk-radius); overflow: hidden; flex: 1; min-width: 260px;
+}
+.tk-regex-slash {
+  padding: 0.6rem 0.8rem; color: var(--tk-accent);
+  font-size: 1.2rem; user-select: none;
+}
+.tk-regex-input {
+  background: none; border: none; outline: none;
+  color: var(--tk-text); font-family: var(--tk-mono);
+  font-size: 0.85rem; padding: 0.6rem 0.4rem; flex: 1;
+  min-width: 0;
+}
+.tk-regex-flags {
+  background: none; border: none; outline: none;
+  color: var(--tk-text); font-family: var(--tk-mono);
+  font-size: 0.85rem; padding: 0.6rem 0.4rem; width: 60px;
+}
+.tk-regex-no-match { color: var(--tk-accent2); }
+
+/* ── Hash ── */
+.tk-hash-results { display: flex; flex-direction: column; }
+.tk-hash-row {
+  display: grid; grid-template-columns: 72px 1fr auto;
+  align-items: center; gap: 1rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--tk-border);
+  border-top: none;
+  background: var(--tk-surface);
+  transition: background 0.15s;
+}
+.tk-hash-row:first-child { border-top: 1px solid var(--tk-border); border-radius: var(--tk-radius) var(--tk-radius) 0 0; }
+.tk-hash-row:last-child  { border-radius: 0 0 var(--tk-radius) var(--tk-radius); }
+.tk-hash-row:hover { background: var(--tk-surface2); }
+.tk-hash-algo { font-size: 0.65rem; letter-spacing: 0.1em; color: var(--tk-accent3); }
+.tk-hash-row code { font-family: var(--tk-mono); font-size: 0.72rem; color: var(--tk-text); word-break: break-all; }
+.tk-copy-small {
+  background: none; border: 1px solid var(--tk-border-bright);
+  color: var(--tk-text-dim); font-family: var(--tk-mono);
+  font-size: 0.6rem; padding: 0.3rem 0.6rem; cursor: pointer;
+  border-radius: var(--tk-radius); transition: all 0.15s; white-space: nowrap;
+}
+.tk-copy-small:hover { border-color: var(--tk-accent); color: var(--tk-accent); }
+
+/* ── Color ── */
+.tk-color-layout {
+  display: grid; grid-template-columns: 200px 1fr 1fr; gap: 2rem;
+}
+@media (max-width: 900px) { .tk-color-layout { grid-template-columns: 1fr; } }
+.tk-color-preview-wrap {
+  display: flex; flex-direction: column; align-items: center; gap: 0.8rem; position: relative;
+}
+.tk-color-preview {
+  width: 160px; height: 160px;
+  border-radius: var(--tk-radius);
+  border: 1px solid var(--tk-border);
+  cursor: pointer; transition: box-shadow 0.1s;
+}
+.tk-color-label {
+  font-size: 1.1rem; letter-spacing: 0.1em; color: var(--tk-accent); cursor: pointer;
+}
+.tk-color-fields { display: flex; flex-direction: column; gap: 0.8rem; }
+.tk-color-field  { display: flex; flex-direction: column; gap: 0.3rem; }
+.tk-color-field label { font-size: 0.6rem; letter-spacing: 0.12em; color: var(--tk-text-dim); }
+.tk-color-input {
+  background: var(--tk-surface); border: 1px solid var(--tk-border);
+  color: var(--tk-text); font-family: var(--tk-mono); font-size: 0.8rem;
+  padding: 0.5rem 0.8rem; border-radius: var(--tk-radius); outline: none;
+  transition: border-color 0.15s; width: 100%;
+}
+.tk-color-input:focus { border-color: var(--tk-accent); }
+.tk-color-palette {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.4rem; align-content: start;
+}
+.tk-swatch {
+  width: 100%; aspect-ratio: 1;
+  border-radius: var(--tk-radius);
+  border: 1px solid rgba(255,255,255,0.05);
+  cursor: pointer;
+  transition: transform 0.12s;
+}
+.tk-swatch:hover { transform: scale(1.15); z-index: 1; }
+
+/* ── Diff ── */
+.tk-diff-result {
+  margin-top: 1rem;
+  background: var(--tk-surface);
+  border: 1px solid var(--tk-border);
+  border-radius: var(--tk-radius);
+  padding: 1rem;
+  font-size: 0.8rem;
+  line-height: 1.9;
+  font-family: var(--tk-mono);
+  white-space: pre-wrap;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.tk-diff-add  { background: rgba(0,255,136,0.1); color: var(--tk-accent); display: block; }
+.tk-diff-del  { background: rgba(255,51,102,0.1); color: var(--tk-accent2); display: block; text-decoration: line-through; }
+.tk-diff-same { color: var(--tk-text-dim); display: block; }
+
+/* ── Word Count ── */
+.tk-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 1px;
+  background: var(--tk-border);
+  border: 1px solid var(--tk-border);
+  border-radius: var(--tk-radius);
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+}
+.tk-stat-card {
+  background: var(--tk-surface);
+  padding: 1.2rem 1rem;
+  text-align: center;
+  transition: background 0.15s;
+}
+.tk-stat-card:hover { background: var(--tk-surface2); }
+.tk-stat-val {
+  font-size: 1.8rem;
+  color: var(--tk-accent);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  margin-bottom: 0.4rem;
+}
+.tk-stat-lbl { font-size: 0.6rem; letter-spacing: 0.1em; color: var(--tk-text-dim); }
+.tk-top-words { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.tk-word-chip {
+  background: var(--tk-surface2);
+  border: 1px solid var(--tk-border-bright);
+  border-radius: 100px;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.7rem;
+  color: var(--tk-text);
+}
+.tk-word-chip span { color: var(--tk-accent3); margin-left: 0.3rem; }
+
+/* ── Unit Converter ── */
+.tk-unit-tabs {
+  display: inline-flex;
+  border: 1px solid var(--tk-border);
+  border-radius: var(--tk-radius);
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+}
+.tk-unit-tab {
+  background: var(--tk-surface); border: none;
+  color: var(--tk-text-dim); font-family: var(--tk-mono);
+  font-size: 0.65rem; letter-spacing: 0.08em;
+  padding: 0.6rem 1rem; cursor: pointer;
+  border-right: 1px solid var(--tk-border);
+  transition: all 0.15s;
+}
+.tk-unit-tab:last-child { border-right: none; }
+.tk-unit-tab.tk-active { background: var(--tk-surface2); color: var(--tk-accent); }
+.tk-unit-tab:hover:not(.tk-active) { background: var(--tk-surface2); color: var(--tk-text); }
+.tk-unit-converter {
+  display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+}
+.tk-unit-equals { font-size: 2rem; color: var(--tk-text-dim); padding: 0 0.5rem; }
+.tk-unit-row {
+  display: flex; gap: 0.8rem; align-items: center;
+  background: var(--tk-surface); border: 1px solid var(--tk-border);
+  border-radius: var(--tk-radius); padding: 0.8rem 1rem;
+  flex: 1; min-width: 220px;
+}
+.tk-unit-num {
+  background: none; border: none; outline: none;
+  color: var(--tk-text); font-family: var(--tk-mono);
+  font-size: 1.2rem; width: 120px;
+}
+.tk-unit-select {
+  background: var(--tk-surface2); border: 1px solid var(--tk-border-bright);
+  color: var(--tk-text); font-family: var(--tk-mono);
+  font-size: 0.75rem; padding: 0.4rem 0.6rem;
+  border-radius: var(--tk-radius); outline: none; cursor: pointer; flex: 1;
+}
+
+/* ── Footer ── */
+.tk-footer {
+  display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;
+  padding: 1.5rem 2rem;
+  border-top: 1px solid var(--tk-border);
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  color: var(--tk-text-dim);
+  margin-top: 4rem;
+}
+
+/* ── Scrollbar inside toolkit ── */
+.tk-root ::-webkit-scrollbar { width: 4px; height: 4px; }
+.tk-root ::-webkit-scrollbar-track { background: var(--tk-bg); }
+.tk-root ::-webkit-scrollbar-thumb { background: var(--tk-border-bright); }
+.tk-root ::-webkit-scrollbar-thumb:hover { background: var(--tk-accent); }
+
+/* ── Selection inside toolkit ── */
+.tk-root ::selection { background: var(--tk-accent); color: var(--tk-bg); }

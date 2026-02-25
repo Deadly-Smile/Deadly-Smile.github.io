@@ -3,15 +3,14 @@ import Video from "../assets/bg-video.mp4";
 import pic from "../assets/Me.jpg";
 import {
   AiFillGithub,
-  AiFillFacebook,
   AiFillLinkedin,
   AiTwotoneMail,
+  AiFillTool
 } from "react-icons/ai";
 import {
   SiCplusplus,
   SiJavascript,
   SiPhp,
-  SiCsharp,
   SiPython,
   SiLaravel,
   SiRedux,
@@ -292,7 +291,6 @@ const Home = () => {
                   </div>
                   <div className="flex justify-center">
                     <button className="btn btn-outline btn-success btn-wide font-thin text-2xl shadow-ping">
-                      {/* <Link to={"/white-board"}>Drawing Board</Link> */}
                       <Link to={"/projects"}>My Projects</Link>
                     </button>
                   </div>
@@ -314,6 +312,12 @@ const Home = () => {
                   <p>Copyright ©{new Date().getFullYear()} Anik Saha - All right reserved</p>
                 </aside>
                 <nav className="grid-flow-col gap-4 md:place-self-center md:justify-self-end text-4xl">
+                  <Link 
+                    className="hover:text-teal-300 animate-custom-bounce custom-bounce-small"
+                    to={"/more-tools"}
+                  >
+                    <AiFillTool />
+                  </Link>
                   <a
                     className="hover:text-teal-300 animate-custom-bounce custom-bounce-small"
                     href="mailto:aniksaha200r@gmail.com"

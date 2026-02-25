@@ -25,7 +25,7 @@ const sampleProjects = [
   {
     id: 2,
     title: "Media Tools",
-    tech: ["React", "Ts", "ffmpeg"],
+    tech: ["React", "TypeScript", "ffmpeg"],
     features: [
       "Video trimmer",
       "Video to GIF converter",
@@ -38,6 +38,22 @@ const sampleProjects = [
     github: "https://github.com/Deadly-Smile/Media-Tools",
     live: "https://media-tools-one.vercel.app/",
   },
+  {
+    id: 3,
+    title: "SQL Playground",
+    tech: ["React", "TypeScript", "SQLite"],
+    features: [
+      "Interactive SQL practice environment",
+      "Supports all types of SQL queries",
+      "Built specifically for SQLite",
+      "Challenge section for practicing and sharing SELECT queries",
+      "Includes 50+ SQL problems across Easy, Medium, and Hard difficulty levels"
+    ],
+    experience:
+      "Built a personal SQL Playground to practice and revisit SQL concepts. Especially for interview preparation.",
+    github: "https://github.com/Deadly-Smile/SQL_Practice",
+    live: "https://sql-practice-phi.vercel.app/",
+  }
   // Add more projects here
 ];
 
