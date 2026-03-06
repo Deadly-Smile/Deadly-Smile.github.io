@@ -313,7 +313,7 @@ const Home = () => {
                 </aside>
                 <nav className="grid-flow-col gap-4 md:place-self-center md:justify-self-end text-4xl">
                   <Link 
-                    className="hover:text-teal-300 animate-custom-bounce custom-bounce-small"
+                    className="text-yellow-600 hover:text-teal-300 animate-custom-bounce custom-bounce-small"
                     to={"/toolz"}
                   >
                     <AiFillTool />
