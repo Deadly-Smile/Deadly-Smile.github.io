@@ -1,4 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { EditorView, basicSetup } from "codemirror";
+import { EditorState } from "@codemirror/state";
+import { javascript } from "@codemirror/lang-javascript";
+import { cpp } from "@codemirror/lang-cpp";
+import { oneDark } from "@codemirror/theme-one-dark";
+import SNIPPETS from "./snippets";
 
 const LANGUAGES = {
   javascript: {
@@ -30,20 +36,61 @@ const LANGUAGES = {
       } catch(e){clearTimeout(timeout);resolve({error:String(e)});try{document.body.removeChild(iframe);}catch{}}
     }),
   },
-};
-
-const SNIPPETS = {
-  javascript:[
-    {label:"Hello World",code:`console.log("Hello, World!");`},
-    {label:"Array methods",code:`const nums=[1,2,3,4,5];\nconsole.log("doubled:",nums.map(n=>n*2));\nconsole.log("evens:",nums.filter(n=>n%2===0));\nconsole.log("sum:",nums.reduce((a,b)=>a+b,0));`},
-    {label:"Async / fetch",code:`const res=await fetch("https://jsonplaceholder.typicode.com/todos/1");\nconst data=await res.json();\nconsole.log(data);`},
-    {label:"Classes",code:`class Animal{constructor(name){this.name=name;}speak(){return\`\${this.name} makes a sound.\`;}}\nclass Dog extends Animal{speak(){return\`\${this.name} barks!\`;}}\nconsole.log(new Dog("Rex").speak());`},
-    {label:"Timer / perf",code:`const t0=performance.now();\nlet x=0;for(let i=0;i<1_000_000;i++)x+=i;\nconsole.log("Result:",x);\nconsole.log(\`Took \${(performance.now()-t0).toFixed(2)}ms\`);`},
-  ],
+  cpp: {
+    label:"C++", abbr:"C++",
+    run: async (code, pushLine) => new Promise(async resolve => {
+      try {
+        pushLine({type:"system",text:"Compiling and executing..."});
+        const response = await fetch("https://wandbox.org/api/compile.json", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            compiler: "clang-head",
+            code: code,
+            options: "-std=c++20"
+          })
+        });
+        const result = await response.json();
+        let hasOutput = false;
+        
+        if (result.compiler_error && result.compiler_error.trim()) {
+          pushLine({type:"error",text:result.compiler_error});
+          hasOutput = true;
+        }
+        
+        if (result.compiler_message && result.compiler_message.trim()) {
+          pushLine({type:"warn",text:result.compiler_message});
+          hasOutput = true;
+        }
+        
+        if (result.program_output && result.program_output.trim()) {
+          result.program_output.split("\n").filter(l=>l.trim()).forEach(line=>pushLine({type:"log",text:line}));
+          hasOutput = true;
+        }
+        
+        if (result.program_error && result.program_error.trim()) {
+          pushLine({type:"error",text:result.program_error});
+          hasOutput = true;
+        }
+        
+        if (!hasOutput && result.status === "0") {
+          pushLine({type:"log",text:"(Program executed successfully with no output)"});
+        }
+        
+        if (result.status !== "0" && result.status !== "") {
+          pushLine({type:"system",text:"Execution failed (status: "+result.status+")"});
+        } else {
+          pushLine({type:"system",text:"Execution completed"});
+        }
+        resolve({});
+      } catch(e) {
+        resolve({error:`Error: ${e.message}`});
+      }
+    }),
+  },
 };
 
 const LS={log:{color:"#e8e8e8",prefix:""},info:{color:"#4a90e2",prefix:"ℹ "},warn:{color:"#ffcc00",prefix:"⚠ "},error:{color:"#ff3366",prefix:"✗ "},debug:{color:"#888",prefix:"● "},return:{color:"#00ff88",prefix:"← "},system:{color:"#555",prefix:"// "}};
-
 const µBtn={background:"none",border:"1px solid var(--tk-border-bright)",color:"var(--tk-text-dim)",fontFamily:"var(--tk-mono)",fontSize:"0.7rem",padding:"2px 6px",cursor:"pointer",borderRadius:"var(--tk-radius)",transition:"all 0.12s",lineHeight:1.4};
 
 export default function CodeRunnerTool() {
@@ -55,8 +102,59 @@ export default function CodeRunnerTool() {
   const [showSnippets,setShowSnippets]=useState(false);
   const [fontSize,setFontSize]=useState(13);
   const [wordWrap,setWordWrap]=useState(true);
+  const [inputOpen,setInputOpen]=useState(true);
+  const [outputOpen,setOutputOpen]=useState(true);
   const endRef=useRef(null);
+  const editorRef=useRef(null);
+  const editorViewRef=useRef(null);
   const lang=LANGUAGES[langKey];
+
+  useEffect(() => {
+    if (!editorRef.current) {
+      return;
+    }
+    editorRef.current.style.setProperty('--cm-fontSize', `${fontSize}px`);
+    
+    const language=langKey==="cpp"?cpp():javascript();
+    const state=EditorState.create({
+      doc:code,
+      extensions:[basicSetup,language,oneDark],
+    });
+    if (editorViewRef.current){
+      editorViewRef.current.destroy();
+    }
+    const view=new EditorView({
+      state,
+      parent:editorRef.current,
+      dispatch:(tr)=>{
+        view.update([tr]);
+        if(tr.docChanged){
+          setCode(view.state.doc.toString());
+        }
+      },
+    });
+    editorViewRef.current=view;
+    return()=>{
+      if(editorViewRef.current){
+        editorViewRef.current.destroy();
+      }
+    };
+  },[langKey]);
+
+  // Update font size when it changes
+  useEffect(()=>{
+    if(editorRef.current){
+      editorRef.current.style.setProperty('--cm-fontSize', `${fontSize}px`);
+    }
+  },[fontSize]);
+
+  // Sync CodeMirror when code changes externally (e.g., snippet selection)
+  useEffect(()=>{
+    if(editorViewRef.current && code !== editorViewRef.current.state.doc.toString()){
+      const changes={from:0,to:editorViewRef.current.state.doc.length,insert:code};
+      editorViewRef.current.dispatch({changes});
+    }
+  },[code]);
 
   useEffect(()=>{ endRef.current?.scrollIntoView({behavior:"smooth"}); },[lines]);
 
@@ -87,8 +185,6 @@ export default function CodeRunnerTool() {
     const next=code.substring(0,s)+"  "+code.substring(en);
     setCode(next);setTimeout(()=>{el.selectionStart=el.selectionEnd=s+2;},0);
   };
-
-  const lineCount=code.split("\n").length;
 
   return(
     <div>
@@ -129,67 +225,170 @@ export default function CodeRunnerTool() {
         </div>
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"1rem"}}>
-        {/* Editor */}
-        <div style={{display:"flex",flexDirection:"column",gap:"0.4rem"}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <span style={{fontSize:"0.6rem",letterSpacing:"0.15em",color:"var(--tk-text-dim)"}}>EDITOR</span>
-            <div style={{display:"flex",alignItems:"center",gap:"0.6rem"}}>
-              <div style={{display:"flex",alignItems:"center",gap:4}}>
-                <button onClick={()=>setFontSize(f=>Math.max(10,f-1))} style={µBtn}>−</button>
-                <span style={{fontSize:"0.6rem",color:"var(--tk-text-dim)",minWidth:24,textAlign:"center"}}>{fontSize}px</span>
-                <button onClick={()=>setFontSize(f=>Math.min(20,f+1))} style={µBtn}>+</button>
+      <div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
+        {/* CODE SECTION - COLLAPSIBLE */}
+        <div style={{border:"1px solid var(--tk-border)",borderRadius:"var(--tk-radius)",overflow:"hidden",background:"var(--tk-surface)"}}>
+          <button
+            onClick={()=>setInputOpen(!inputOpen)}
+            style={{width:"100%",padding:"0.8rem 1rem",display:"flex",alignItems:"center",justifyContent:"space-between",background:inputOpen?"var(--tk-surface2)":"var(--tk-surface)",border:"none",borderBottom:inputOpen?"1px solid var(--tk-border)":"none",cursor:"pointer",transition:"all 0.2s"}}
+          >
+            <div style={{display:"flex",alignItems:"center",gap:"0.8rem"}}>
+              <span style={{display:"inline-block",transition:"transform 0.2s",transform:inputOpen?"rotate(90deg)":"rotate(0deg)",color:"var(--tk-accent)"}}>▶</span>
+              <span style={{fontSize:"0.6rem",letterSpacing:"0.15em",color:"var(--tk-text-dim)",fontWeight:600}}>CODE</span>
+            </div>
+            <span style={{fontSize:"0.55rem",color:"var(--tk-text-dim)"}}>{code.split("\n").length} lines</span>
+          </button>
+          
+          {inputOpen && (
+            <div style={{padding:"0.8rem",display:"flex",flexDirection:"column",gap:"0.4rem"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingBottom:"0.4rem",borderBottom:"1px solid var(--tk-border)"}}>
+                <div style={{display:"flex",alignItems:"center",gap:"0.6rem"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:4}}>
+                    <button onClick={()=>setFontSize(f=>Math.max(10,f-1))} style={µBtn}>−</button>
+                    <span style={{fontSize:"0.6rem",color:"var(--tk-text-dim)",minWidth:24,textAlign:"center"}}>{fontSize}px</span>
+                    <button onClick={()=>setFontSize(f=>Math.min(20,f+1))} style={µBtn}>+</button>
+                  </div>
+                  <button onClick={()=>setWordWrap(v=>!v)} style={{...µBtn,color:wordWrap?"var(--tk-accent)":"var(--tk-text-dim)",padding:"2px 8px",fontSize:"0.55rem"}}>WRAP</button>
+                  <button onClick={()=>setCode("")} style={{...µBtn,color:"var(--tk-accent2)",padding:"2px 8px",fontSize:"0.55rem"}}>CLEAR</button>
+                </div>
               </div>
-              <button onClick={()=>setWordWrap(v=>!v)} style={{...µBtn,color:wordWrap?"var(--tk-accent)":"var(--tk-text-dim)",padding:"2px 8px",fontSize:"0.55rem"}}>WRAP</button>
-              <button onClick={()=>setCode("")} style={{...µBtn,color:"var(--tk-accent2)",padding:"2px 8px",fontSize:"0.55rem"}}>CLEAR</button>
+              
+              <div style={{position:"relative",background:"var(--tk-surface)",border:"1px solid var(--tk-border)",borderRadius:"var(--tk-radius)",overflow:"hidden",display:"flex",transition:"border-color 0.15s",flexDirection:"column"}}
+                onFocusCapture={e=>e.currentTarget.style.borderColor="var(--tk-accent)"}
+                onBlurCapture={e=>e.currentTarget.style.borderColor="var(--tk-border)"}>
+                <div 
+                  ref={editorRef}
+                  style={{
+                    flex:1,
+                    fontSize:`${fontSize}px`,
+                    minHeight:"300px",
+                    overflow:"auto",
+                    borderRadius:"4px",
+                  }}
+                  className="cm-editor-container"
+                />
+              </div>
+              
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:"0.58rem",color:"var(--tk-text-dim)",letterSpacing:"0.06em"}}>
+                <span>{code.length} characters</span>
+                <span>Ctrl+Enter to run · Tab to indent</span>
+              </div>
             </div>
-          </div>
-          <div style={{position:"relative",background:"var(--tk-surface)",border:"1px solid var(--tk-border)",borderRadius:"var(--tk-radius)",overflow:"hidden",display:"flex",transition:"border-color 0.15s"}}
-            onFocusCapture={e=>e.currentTarget.style.borderColor="var(--tk-accent)"}
-            onBlurCapture={e=>e.currentTarget.style.borderColor="var(--tk-border)"}>
-            <div style={{padding:"1rem 0.6rem 1rem 0.8rem",background:"rgba(0,0,0,0.2)",borderRight:"1px solid var(--tk-border)",color:"var(--tk-text-dim)",fontFamily:"var(--tk-mono)",fontSize:fontSize,lineHeight:1.6,userSelect:"none",minWidth:36,textAlign:"right",overflow:"hidden"}}>
-              {Array.from({length:lineCount},(_,i)=><div key={i}>{i+1}</div>)}
-            </div>
-            <textarea value={code} onChange={e=>setCode(e.target.value)} onKeyDown={handleTab} spellCheck={false} style={{flex:1,background:"transparent",border:"none",color:"var(--tk-text)",fontFamily:"var(--tk-mono)",fontSize,lineHeight:1.6,padding:"1rem",resize:"none",outline:"none",minHeight:340,whiteSpace:wordWrap?"pre-wrap":"pre",overflowWrap:wordWrap?"break-word":"normal",overflowX:wordWrap?"hidden":"auto"}}/>
-          </div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span style={{fontSize:"0.58rem",color:"var(--tk-text-dim)",letterSpacing:"0.06em"}}>{lineCount} lines · {code.length} chars{execTime&&<span style={{marginLeft:"1rem",color:"var(--tk-accent3)"}}>last: {execTime}ms</span>}</span>
-            <span style={{fontSize:"0.58rem",color:"var(--tk-text-dim)",letterSpacing:"0.06em"}}>Ctrl+Enter to run · Tab to indent</span>
-          </div>
+          )}
         </div>
 
-        {/* Console */}
-        <div style={{display:"flex",flexDirection:"column",gap:"0.4rem"}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <div style={{display:"flex",alignItems:"center",gap:"0.6rem"}}>
-              <span style={{fontSize:"0.6rem",letterSpacing:"0.15em",color:"var(--tk-text-dim)"}}>CONSOLE</span>
-              {lines.length>0&&<span style={{background:"var(--tk-surface2)",border:"1px solid var(--tk-border-bright)",borderRadius:100,padding:"1px 7px",fontSize:"0.55rem",color:"var(--tk-text-dim)"}}>{lines.filter(l=>l.type!=="system").length}</span>}
-              {running&&<span style={{display:"flex",alignItems:"center",gap:4,fontSize:"0.58rem",color:"var(--tk-accent)"}}><span style={{animation:"tk-pulse 1s infinite"}}>●</span> running</span>}
+        {/* OUTPUT SECTION - COLLAPSIBLE */}
+        <div style={{border:"1px solid var(--tk-border)",borderRadius:"var(--tk-radius)",overflow:"hidden",background:"var(--tk-surface)"}}>
+          <button
+            onClick={()=>setOutputOpen(!outputOpen)}
+            style={{width:"100%",padding:"0.8rem 1rem",display:"flex",alignItems:"center",justifyContent:"space-between",background:outputOpen?"var(--tk-surface2)":"var(--tk-surface)",border:"none",borderBottom:outputOpen?"1px solid var(--tk-border)":"none",cursor:"pointer",transition:"all 0.2s"}}
+          >
+            <div style={{display:"flex",alignItems:"center",gap:"0.8rem"}}>
+              <span style={{display:"inline-block",transition:"transform 0.2s",transform:outputOpen?"rotate(90deg)":"rotate(0deg)",color:"var(--tk-accent)"}}>▶</span>
+              <span style={{fontSize:"0.6rem",letterSpacing:"0.15em",color:"var(--tk-text-dim)",fontWeight:600}}>OUTPUT</span>
             </div>
-            <button onClick={()=>setLines([])} style={{...µBtn,padding:"2px 8px",fontSize:"0.55rem"}}>CLEAR</button>
-          </div>
-          <div style={{background:"#080808",border:"1px solid var(--tk-border)",borderRadius:"var(--tk-radius)",padding:"0.8rem 1rem",minHeight:340,maxHeight:480,overflowY:"auto",fontFamily:"var(--tk-mono)",fontSize:12,lineHeight:1.7}}>
-            {lines.length===0
-              ?<div style={{color:"#333",fontSize:"0.72rem",userSelect:"none"}}><div>// Output will appear here</div><div style={{marginTop:"0.5rem"}}>// Press ▶ Run or Ctrl+Enter</div></div>
-              :lines.map(line=>{
-                const st=LS[line.type]||LS.log,sys=line.type==="system";
-                return<div key={line.id} style={{color:st.color,opacity:sys?0.45:1,fontSize:sys?11:12,borderBottom:sys?"none":"1px solid rgba(255,255,255,0.03)",paddingBottom:sys?0:"0.2rem",marginBottom:sys?"0.1rem":"0.2rem",whiteSpace:"pre-wrap",wordBreak:"break-all",display:"flex",gap:4}}>
-                  {st.prefix&&<span style={{opacity:0.6,flexShrink:0}}>{st.prefix}</span>}<span>{line.text}</span>
-                </div>;
-              })
-            }
-            <div ref={endRef}/>
-          </div>
-          <div style={{display:"flex",gap:"0.8rem",flexWrap:"wrap"}}>
-            {["log","warn","error","info","return"].map(t=>(
-              <span key={t} style={{fontSize:"0.55rem",letterSpacing:"0.08em",color:LS[t].color,opacity:0.6,display:"flex",alignItems:"center",gap:3}}>
-                <span>{LS[t].prefix||"○"}</span>{t}
-              </span>
-            ))}
-          </div>
+            <span style={{fontSize:"0.55rem",color:"var(--tk-text-dim)"}}>{lines.filter(l=>l.type!=="system").length} items</span>
+          </button>
+
+          {outputOpen && (
+            <div style={{padding:"0.8rem",display:"flex",flexDirection:"column",gap:"0.4rem"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingBottom:"0.4rem",borderBottom:"1px solid var(--tk-border)"}}>
+                <div style={{display:"flex",alignItems:"center",gap:"0.6rem"}}>
+                  {running&&<span style={{display:"flex",alignItems:"center",gap:4,fontSize:"0.58rem",color:"var(--tk-accent)"}}><span style={{animation:"tk-pulse 1s infinite"}}>●</span> running</span>}
+                  {execTime&&<span style={{fontSize:"0.58rem",color:"var(--tk-accent3)"}}>last: {execTime}ms</span>}
+                </div>
+                <button onClick={()=>setLines([])} style={{...µBtn,padding:"2px 8px",fontSize:"0.55rem"}}>CLEAR</button>
+              </div>
+              
+              <div style={{background:"#080808",border:"1px solid var(--tk-border)",borderRadius:"var(--tk-radius)",padding:"0.8rem 1rem",minHeight:200,maxHeight:400,overflowY:"auto",fontFamily:"var(--tk-mono)",fontSize:12,lineHeight:1.7}}>
+                {lines.length===0
+                  ?<div style={{color:"#333",fontSize:"0.72rem",userSelect:"none"}}><div>// Output will appear here</div><div style={{marginTop:"0.5rem"}}>// Press ▶ Run or Ctrl+Enter</div></div>
+                  :lines.map(line=>{
+                    const st=LS[line.type]||LS.log,sys=line.type==="system";
+                    return<div key={line.id} style={{color:st.color,opacity:sys?0.45:1,fontSize:sys?11:12,borderBottom:sys?"none":"1px solid rgba(255,255,255,0.03)",paddingBottom:sys?0:"0.2rem",marginBottom:sys?"0.1rem":"0.2rem",whiteSpace:"pre-wrap",wordBreak:"break-all",display:"flex",gap:4}}>
+                      {st.prefix&&<span style={{opacity:0.6,flexShrink:0}}>{st.prefix}</span>}<span>{line.text}</span>
+                    </div>;
+                  })
+                }
+                <div ref={endRef}/>
+              </div>
+              
+              <div style={{display:"flex",gap:"0.8rem",flexWrap:"wrap"}}>
+                {["log","warn","error","info","return"].map(t=>(
+                  <span key={t} style={{fontSize:"0.55rem",letterSpacing:"0.08em",color:LS[t].color,opacity:0.6,display:"flex",alignItems:"center",gap:3}}>
+                    <span>{LS[t].prefix||"○"}</span>{t}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
-      <style>{`@keyframes tk-pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
+      <style>{`
+        @keyframes tk-pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+        
+        .cm-editor-container {
+          font-family: 'Space Mono', monospace !important;
+          --cm-fontSize: 13px;
+        }
+        
+        .cm-editor-container .cm-editor {
+          height: 100% !important;
+          background: transparent !important;
+          font-size: var(--cm-fontSize) !important;
+        }
+        
+        .cm-editor-container .cm-gutters {
+          background: rgba(0,0,0,0.2) !important;
+          border-right: 1px solid var(--tk-border) !important;
+          font-size: var(--cm-fontSize) !important;
+        }
+        
+        .cm-editor-container .cm-lineNumbers {
+          color: var(--tk-text-dim) !important;
+          padding: 1rem 0.6rem 1rem 0.8rem !important;
+          min-width: 36px !important;
+        }
+        
+        .cm-editor-container .cm-content {
+          padding: 1rem !important;
+          font-family: 'Space Mono', monospace !important;
+        }
+        
+        .cm-editor-container .cm-line {
+          padding: 0 !important;
+        }
+        
+        .cm-editor-container .cm-cursor {
+          border-left-color: var(--tk-accent) !important;
+          border-left-width: 2px !important;
+        }
+        
+        .cm-editor-container .cm-selection {
+          background: rgba(102, 126, 234, 0.2) !important;
+        }
+        
+        .cm-editor-container .cm-activeLineGutter {
+          background: rgba(102, 126, 234, 0.1) !important;
+        }
+        
+        .cm-editor-container .cm-activeLine {
+          background: rgba(102, 126, 234, 0.05) !important;
+        }
+        
+        .cm-editor-container .cm-matchingBracket {
+          background-color: rgba(102, 126, 234, 0.3) !important;
+          outline: 1px solid rgba(102, 126, 234, 0.5) !important;
+        }
+        
+        .cm-editor-container .cm-searchMatch {
+          background-color: rgba(255, 200, 0, 0.3) !important;
+        }
+        
+        .cm-editor-container .cm-searchMatch.cm-searchMatch-selected {
+          background-color: rgba(255, 200, 0, 0.5) !important;
+        }
+      `}</style>
     </div>
   );
 }

@@ -9,21 +9,21 @@ import HashTool        from "./tools/HashTool";
 import ColorTool       from "./tools/ColorTool";
 import DiffTool        from "./tools/DiffTool";
 import WordTool        from "./tools/WordTool";
-import UnitTool        from "./tools/UnitTool";
+import HtmlPreviewerTool from "./tools/HtmlPreviewerTool";
 import CodeRunnerTool  from "./tools/CodeRunnerTool";
 import HttpTool        from "./tools/HttpTool";
 
 const TOOLS = [
-  { id:"json",   label:"JSON",       component: JsonTool        },
-  { id:"regex",  label:"REGEX",      component: RegexTool       },
-  { id:"base64", label:"BASE64",     component: Base64Tool      },
-  { id:"hash",   label:"HASH",       component: HashTool        },
-  { id:"color",  label:"COLOR",      component: ColorTool       },
-  { id:"diff",   label:"DIFF",       component: DiffTool        },
-  { id:"word",   label:"WORD COUNT", component: WordTool        },
-  { id:"unit",   label:"UNITS",      component: UnitTool        },
-  { id:"code",   label:"CODE",       component: CodeRunnerTool  },
-  { id:"http",   label:"HTTP",       component: HttpTool        },
+  { id:"json",   label:"JSON",       component: JsonTool           },
+  { id:"regex",  label:"REGEX",      component: RegexTool          },
+  { id:"base64", label:"BASE64",     component: Base64Tool         },
+  { id:"hash",   label:"HASH",       component: HashTool           },
+  { id:"color",  label:"COLOR",      component: ColorTool          },
+  { id:"diff",   label:"DIFF",       component: DiffTool           },
+  { id:"word",   label:"WORD COUNT", component: WordTool           },
+  { id:"html",   label:"HTML",       component: HtmlPreviewerTool  },
+  { id:"code",   label:"CODE",       component: CodeRunnerTool     },
+  { id:"http",   label:"HTTP",       component: HttpTool           },
 ];
 
 const WhiteboardIcon = () => (
