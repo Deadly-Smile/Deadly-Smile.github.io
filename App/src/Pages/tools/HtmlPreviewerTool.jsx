@@ -1,11 +1,25 @@
 import { useState, useMemo, useRef, useEffect } from "react";
+import { EditorView, basicSetup } from "codemirror";
+import { EditorState } from "@codemirror/state";
+import { javascript } from "@codemirror/lang-javascript";
+import { html as htmlLang } from "@codemirror/lang-html";
+import { css as cssLang } from "@codemirror/lang-css";
+import { oneDark } from "@codemirror/theme-one-dark";
 import { CopyBtn } from "./tk-shared";
 
 export default function HtmlPreviewerTool() {
   const [html, setHtml] = useState(`<div class="container">
   <h1>Hello World</h1>
   <p>Edit the panels on the left to see changes in real-time</p>
-</div>`);
+</div>
+
+
+
+
+
+
+
+`);
   
   const [css, setCss] = useState(`* {
   margin: 0;
@@ -47,13 +61,29 @@ p {
 // Add interactivity here
 document.addEventListener('DOMContentLoaded', () => {
   console.log('Document ready');
-});`);
+});
+
+
+
+
+
+
+
+
+
+`);
 
   const [refreshKey, setRefreshKey] = useState(0);
   const [logs, setLogs] = useState([]);
   const [cssOpen, setCssOpen] = useState(true);
   const [jsOpen, setJsOpen] = useState(true);
   const iframeRef = useRef(null);
+  const htmlEditorRef = useRef(null);
+  const cssEditorRef = useRef(null);
+  const jsEditorRef = useRef(null);
+  const htmlViewRef = useRef(null);
+  const cssViewRef = useRef(null);
+  const jsViewRef = useRef(null);
 
   useEffect(() => {
     const handleMessage = (event) => {
@@ -66,6 +96,81 @@ document.addEventListener('DOMContentLoaded', () => {
   }, []);
 
   const clearLogs = () => setLogs([]);
+
+  // Initialize HTML Editor
+  useEffect(() => {
+    if (!htmlEditorRef.current) return;
+    const state = EditorState.create({
+      doc: html,
+      extensions: [basicSetup, htmlLang(), oneDark],
+    });
+    if (htmlViewRef.current) htmlViewRef.current.destroy();
+    const view = new EditorView({
+      state,
+      parent: htmlEditorRef.current,
+      dispatch: (tr) => {
+        view.update([tr]);
+        if (tr.docChanged) {
+          setHtml(view.state.doc.toString());
+          setLogs([]);
+        }
+      },
+    });
+    htmlViewRef.current = view;
+    return () => {
+      if (htmlViewRef.current) htmlViewRef.current.destroy();
+    };
+  }, []);
+
+  // Initialize CSS Editor
+  useEffect(() => {
+    if (!cssEditorRef.current) return;
+    const state = EditorState.create({
+      doc: css,
+      extensions: [basicSetup, cssLang(), oneDark],
+    });
+    if (cssViewRef.current) cssViewRef.current.destroy();
+    const view = new EditorView({
+      state,
+      parent: cssEditorRef.current,
+      dispatch: (tr) => {
+        view.update([tr]);
+        if (tr.docChanged) {
+          setCss(view.state.doc.toString());
+          setLogs([]);
+        }
+      },
+    });
+    cssViewRef.current = view;
+    return () => {
+      if (cssViewRef.current) cssViewRef.current.destroy();
+    };
+  }, []);
+
+  // Initialize JavaScript Editor
+  useEffect(() => {
+    if (!jsEditorRef.current) return;
+    const state = EditorState.create({
+      doc: js,
+      extensions: [basicSetup, javascript(), oneDark],
+    });
+    if (jsViewRef.current) jsViewRef.current.destroy();
+    const view = new EditorView({
+      state,
+      parent: jsEditorRef.current,
+      dispatch: (tr) => {
+        view.update([tr]);
+        if (tr.docChanged) {
+          setJs(view.state.doc.toString());
+          setLogs([]);
+        }
+      },
+    });
+    jsViewRef.current = view;
+    return () => {
+      if (jsViewRef.current) jsViewRef.current.destroy();
+    };
+  }, []);
 
   const iframeContent = useMemo(() => {
     return `<!DOCTYPE html>
@@ -118,6 +223,15 @@ ${js}
 
   const getFullCode = () => iframeContent;
 
+  const openInSeparateTab = () => {
+    const blob = new Blob([iframeContent], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    
+    window.open(url, "_blank");
+    
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  };
+
   return (
     <div>
       <div className="tk-tool-header">
@@ -136,6 +250,13 @@ ${js}
         >
           ↻ Refresh
         </button>
+        <button 
+          className="tk-action-btn"
+          onClick={openInSeparateTab}
+          title="Open preview in a new tab"
+        >
+          ⧉ Open in Tab
+        </button>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", minHeight: "600px" }}>
@@ -146,24 +267,15 @@ ${js}
             <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#aaa", marginBottom: "0.5rem", letterSpacing: "0.05em" }}>
               HTML
             </div>
-            <textarea
-              value={html}
-              onChange={(e) => { setHtml(e.target.value); setLogs([]); }}
+            <div
+              ref={htmlEditorRef}
               style={{
                 width: "100%",
                 height: "180px",
-                padding: "0.8rem",
-                fontFamily: "'Space Mono', monospace",
-                fontSize: "0.85rem",
-                background: "#0d0d0d",
-                color: "#e8e8e8",
                 border: "1px solid #333",
                 borderRadius: "4px",
-                resize: "none",
-                outline: "none",
+                overflow: "hidden",
               }}
-              onFocus={(e) => (e.target.style.borderColor = "#667eea")}
-              onBlur={(e) => (e.target.style.borderColor = "#333")}
             />
           </div>
 
@@ -193,24 +305,15 @@ ${js}
               CSS
             </button>
             {cssOpen && (
-              <textarea
-                value={css}
-                onChange={(e) => { setCss(e.target.value); setLogs([]); }}
+              <div
+                ref={cssEditorRef}
                 style={{
                   width: "100%",
                   height: "180px",
-                  padding: "0.8rem",
-                  fontFamily: "'Space Mono', monospace",
-                  fontSize: "0.85rem",
-                  background: "#0d0d0d",
-                  color: "#e8e8e8",
                   border: "1px solid #333",
                   borderRadius: "4px",
-                  resize: "none",
-                  outline: "none",
+                  overflow: "hidden",
                 }}
-                onFocus={(e) => (e.target.style.borderColor = "#667eea")}
-                onBlur={(e) => (e.target.style.borderColor = "#333")}
               />
             )}
           </div>
@@ -241,24 +344,15 @@ ${js}
               JAVASCRIPT
             </button>
             {jsOpen && (
-              <textarea
-                value={js}
-                onChange={(e) => { setJs(e.target.value); setLogs([]); }}
+              <div
+                ref={jsEditorRef}
                 style={{
                   width: "100%",
                   height: "180px",
-                  padding: "0.8rem",
-                  fontFamily: "'Space Mono', monospace",
-                  fontSize: "0.85rem",
-                  background: "#0d0d0d",
-                  color: "#e8e8e8",
                   border: "1px solid #333",
                   borderRadius: "4px",
-                  resize: "none",
-                  outline: "none",
+                  overflow: "hidden",
                 }}
-                onFocus={(e) => (e.target.style.borderColor = "#667eea")}
-                onBlur={(e) => (e.target.style.borderColor = "#333")}
               />
             )}
           </div>
