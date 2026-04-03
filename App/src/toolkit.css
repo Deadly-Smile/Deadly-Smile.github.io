@@ -942,3 +942,159 @@
 .tk-magic8-result.tk-funny {
   color: #b388ff;
 }
+
+/* ── Settings Modal ── */
+.tk-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  backdrop-filter: blur(2px);
+}
+
+.tk-modal-content {
+  background: var(--tk-surface2);
+  border: 1px solid var(--tk-border-bright);
+  border-radius: var(--tk-radius);
+  padding: 2rem;
+  max-width: 500px;
+  max-height: 80vh;
+  overflow-y: auto;
+  animation: tk-slideUp 0.3s ease;
+}
+
+@keyframes tk-slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tk-modal-content h2 {
+  margin: 0 0 0.5rem 0;
+  font-family: var(--tk-display);
+  font-size: 1.3rem;
+  color: var(--tk-text);
+  letter-spacing: -0.01em;
+  font-weight: 400;
+}
+
+.tk-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  margin: 1.5rem 0;
+  padding: 1rem 0;
+}
+
+.tk-settings-section {
+  margin-bottom: 2rem;
+}
+
+.tk-settings-section h3 {
+  font-size: 0.75rem;
+  letter-spacing: 0.15em;
+  color: var(--tk-accent);
+  text-transform: uppercase;
+  margin: 0 0 1rem 0;
+  font-family: var(--tk-mono);
+  font-weight: bold;
+}
+
+.tk-settings-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.8rem 1rem;
+  background: var(--tk-surface);
+  border: 1px solid var(--tk-border);
+  border-radius: var(--tk-radius);
+  transition: all 0.15s;
+}
+
+.tk-settings-item:hover {
+  border-color: var(--tk-border-bright);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tk-settings-item label {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex: 1;
+  cursor: pointer;
+  user-select: none;
+  margin: 0;
+}
+
+.tk-settings-item input[type="radio"] {
+  cursor: pointer;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--tk-accent);
+}
+
+.tk-settings-item input[type="checkbox"] {
+  cursor: pointer;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--tk-accent);
+}
+
+.tk-radio-label {
+  font-size: 0.8rem;
+  color: var(--tk-text);
+  font-family: var(--tk-mono);
+  letter-spacing: 0.05em;
+}
+
+.tk-radio-state {
+  font-size: 0.65rem;
+  color: var(--tk-text-dim);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  margin-left: 1rem;
+}
+
+.tk-modal-close {
+  width: 100%;
+  padding: 0.9rem;
+  background: var(--tk-accent);
+  color: var(--tk-bg);
+  border: none;
+  border-radius: var(--tk-radius);
+  font-family: var(--tk-mono);
+  font-size: 0.7rem;
+  font-weight: bold;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  margin-top: 1rem;
+  transition: all 0.15s;
+  text-transform: uppercase;
+}
+
+.tk-modal-close:hover {
+  background: #00dd7f;
+  box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+}
+
+.tk-settings-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  padding: 0;
+  margin-left: 0.5rem;
+}
+
+.tk-settings-btn:hover {
+  color: var(--tk-accent);
+}
