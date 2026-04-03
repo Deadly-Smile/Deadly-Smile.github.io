@@ -7,6 +7,7 @@ export default function RegexTool() {
   const [testStr, setTestStr] = useState("");
   const [output,  setOutput]  = useState([]);
   const [status,  setStatus]  = useState({ msg: "Ready.", type: "" });
+  const [isMaximized, setIsMaximized] = useState(false);
 
   const run = useCallback(() => {
     if (!pattern) { setOutput([]); setStatus({ msg: "Enter a pattern.", type: "" }); return; }
@@ -34,9 +35,31 @@ export default function RegexTool() {
 
   useEffect(() => { run(); }, [run]);
 
+  // Handle Escape key to exit maximize
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape" && isMaximized) {
+        setIsMaximized(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isMaximized]);
+
   return (
-    <div>
-      <div className="tk-tool-header"><h2 className="tk-tool-title">Regex Tester</h2></div>
+    <div className={`tk-editor-container ${isMaximized ? "tk-editor-maximized" : ""}`}>
+      <div className="tk-tool-header">
+        <h2 className="tk-tool-title">Regex Tester</h2>
+        <div>
+          <button
+            onClick={() => setIsMaximized(!isMaximized)}
+            className="tk-editor-max-btn"
+            title={isMaximized ? "Exit fullscreen" : "Fullscreen editor"}
+          >
+            {isMaximized ? "✕" : "⊞"}
+          </button>
+        </div>
+      </div>
       <div className="tk-regex-top">
         <div className="tk-regex-field-wrap">
           <span className="tk-regex-slash">/</span>
@@ -46,11 +69,13 @@ export default function RegexTool() {
         </div>
         <ActionBtn onClick={run}>Test</ActionBtn>
       </div>
-      <SplitPane
-        left={<><PaneLabel>TEST STRING</PaneLabel><textarea className="tk-textarea" value={testStr} onChange={e => setTestStr(e.target.value)} placeholder="Type your test string here..." /></>}
-        right={<><PaneLabel>MATCHES</PaneLabel><pre className="tk-output-pre">{output.map((o, i) => <span key={i} className={o.type === "err" ? "tk-regex-no-match" : ""}>{o.text + "\n"}</span>)}</pre></>}
-      />
-      <StatusBar {...status} />
+      <div className={`tk-split-pane-wrapper ${isMaximized ? "tk-editor-input-max" : ""}`}>
+        <SplitPane
+          left={<><PaneLabel>TEST STRING</PaneLabel><textarea className="tk-textarea" value={testStr} onChange={e => setTestStr(e.target.value)} placeholder="Type your test string here..." /></>}
+          right={isMaximized ? null : <><PaneLabel>MATCHES</PaneLabel><pre className="tk-output-pre">{output.map((o, i) => <span key={i} className={o.type === "err" ? "tk-regex-no-match" : ""}>{o.text + "\n"}</span>)}</pre></>}
+        />
+      </div>
+      {!isMaximized && <StatusBar {...status} />}
     </div>
   );
 }

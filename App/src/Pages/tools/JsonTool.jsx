@@ -13,6 +13,7 @@ export default function JsonTool() {
   const [input,  setInput]  = useState("");
   const [output, setOutput] = useState("");
   const [status, setStatus] = useState({ msg: "Ready.", type: "" });
+  const [isMaximized, setIsMaximized] = useState(false);
   const outRef = useRef("");
 
   const format = useCallback((indent, raw = input) => {
@@ -30,8 +31,19 @@ export default function JsonTool() {
 
   useEffect(() => { format(2, input); }, [input]);
 
+  // Handle Escape key to exit maximize
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape" && isMaximized) {
+        setIsMaximized(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isMaximized]);
+
   return (
-    <div>
+    <div className={`tk-editor-container ${isMaximized ? "tk-editor-maximized" : ""}`}>
       <div className="tk-tool-header">
         <h2 className="tk-tool-title">JSON Formatter &amp; Validator</h2>
         <div className="tk-tool-actions">
@@ -39,13 +51,22 @@ export default function JsonTool() {
           <ActionBtn onClick={() => format(0)}>Minify</ActionBtn>
           <CopyBtn getText={() => outRef.current} />
           <ActionBtn danger onClick={() => { setInput(""); setOutput(""); outRef.current = ""; setStatus({ msg: "Ready.", type: "" }); }}>Clear</ActionBtn>
+          <button
+            onClick={() => setIsMaximized(!isMaximized)}
+            className="tk-editor-max-btn"
+            title={isMaximized ? "Exit fullscreen" : "Fullscreen editor"}
+          >
+            {isMaximized ? "✕" : "⊞"}
+          </button>
         </div>
       </div>
-      <SplitPane
-        left={<><PaneLabel>INPUT</PaneLabel><textarea className="tk-textarea" value={input} onChange={e => setInput(e.target.value)} placeholder="Paste your JSON here..." /></>}
-        right={<><PaneLabel>OUTPUT</PaneLabel><pre className="tk-output-pre">{output}</pre></>}
-      />
-      <StatusBar {...status} />
+      <div className={`tk-split-pane-wrapper ${isMaximized ? "tk-editor-input-max" : ""}`}>
+        <SplitPane
+          left={<><PaneLabel>INPUT</PaneLabel><textarea className="tk-textarea" value={input} onChange={e => setInput(e.target.value)} placeholder="Paste your JSON here..." /></>}
+          right={isMaximized ? null : <><PaneLabel>OUTPUT</PaneLabel><pre className="tk-output-pre">{output}</pre></>}
+        />
+      </div>
+      {!isMaximized && <StatusBar {...status} />}
     </div>
   );
 }

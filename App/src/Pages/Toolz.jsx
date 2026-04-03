@@ -12,19 +12,28 @@ import WordTool        from "./tools/WordTool";
 import HtmlPreviewerTool from "./tools/HtmlPreviewerTool";
 import CodeRunnerTool  from "./tools/CodeRunnerTool";
 import HttpTool        from "./tools/HttpTool";
+import NotesTool       from "./tools/NotesTool";
+import Magic8BallTool  from "./tools/Magic8BallTool";
 
-const TOOLS = [
+const MAIN_TOOLS = [
+  { id:"magic",  label:"ORACLE",     component: Magic8BallTool     },
+  { id:"notes",  label:"NOTES",      component: NotesTool          },
   { id:"json",   label:"JSON",       component: JsonTool           },
+  { id:"html",   label:"HTML",       component: HtmlPreviewerTool  },
+  { id:"code",   label:"CODE",       component: CodeRunnerTool     },
+  { id:"http",   label:"HTTP",       component: HttpTool           },
+];
+
+const OTHER_TOOLS = [
   { id:"regex",  label:"REGEX",      component: RegexTool          },
   { id:"base64", label:"BASE64",     component: Base64Tool         },
   { id:"hash",   label:"HASH",       component: HashTool           },
   { id:"color",  label:"COLOR",      component: ColorTool          },
   { id:"diff",   label:"DIFF",       component: DiffTool           },
   { id:"word",   label:"WORD COUNT", component: WordTool           },
-  { id:"html",   label:"HTML",       component: HtmlPreviewerTool  },
-  { id:"code",   label:"CODE",       component: CodeRunnerTool     },
-  { id:"http",   label:"HTTP",       component: HttpTool           },
 ];
+
+const TOOLS = [...MAIN_TOOLS, ...OTHER_TOOLS];
 
 const WhiteboardIcon = () => (
   <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -36,9 +45,11 @@ const WhiteboardIcon = () => (
 );
 
 function ToolNav({ active, setActive, sticky }) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+
   return (
     <nav className="tk-tool-nav" style={sticky ? { top:0, position:"sticky" } : {}}>
-      {TOOLS.map(t => (
+      {MAIN_TOOLS.map(t => (
         <button
           key={t.id}
           className={`tk-nav-btn${active === t.id ? " tk-active" : ""}`}
@@ -47,12 +58,41 @@ function ToolNav({ active, setActive, sticky }) {
           {t.label}
         </button>
       ))}
+      
+      <div className="tk-dropdown-wrap">
+        <button
+          className="tk-nav-btn"
+          onClick={() => setDropdownOpen(!dropdownOpen)}
+        >
+          <span className="tk-dropdown-toggle">
+            MORE
+            <span className={`tk-dropdown-arrow ${dropdownOpen ? "open" : ""}`}>▼</span>
+          </span>
+        </button>
+
+        {dropdownOpen && (
+          <div className="tk-dropdown-menu">
+            {OTHER_TOOLS.map(t => (
+              <button
+                key={t.id}
+                onClick={() => {
+                  setActive(t.id);
+                  setDropdownOpen(false);
+                }}
+                className={`tk-dropdown-item ${active === t.id ? "tk-active" : ""}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </nav>
   );
 }
 
 const Toolz = ({ embedded = false }) => {
-  const [active, setActive] = useState("json");
+  const [active, setActive] = useState("magic");
   const [clock,  setClock]  = useState("");
   const navigate = useNavigate();
 
@@ -92,23 +132,7 @@ const Toolz = ({ embedded = false }) => {
         <button
           onClick={() => navigate("/white-board")}
           title="Go to Whiteboard"
-          style={{
-            marginLeft:"auto", display:"flex", alignItems:"center", gap:8,
-            background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.12)",
-            color:"#aaa", cursor:"pointer", padding:"7px 14px", borderRadius:100,
-            fontFamily:"'Space Mono',monospace", fontSize:"0.65rem",
-            letterSpacing:"0.1em", transition:"all 0.18s",
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.background   = "rgba(0,255,136,0.1)";
-            e.currentTarget.style.borderColor  = "rgba(0,255,136,0.4)";
-            e.currentTarget.style.color        = "#00ff88";
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.background   = "rgba(255,255,255,0.05)";
-            e.currentTarget.style.borderColor  = "rgba(255,255,255,0.12)";
-            e.currentTarget.style.color        = "#aaa";
-          }}
+          className="tk-whiteboard-btn"
         >
           <WhiteboardIcon />
           WHITEBOARD

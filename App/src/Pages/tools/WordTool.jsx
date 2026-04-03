@@ -1,10 +1,23 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { CopyBtn, ActionBtn } from "./tk-shared";
 
 const STOP=new Set(["the","and","for","that","this","with","are","was","have","has","not","but","from","they","been","were"]);
 
 export default function WordTool() {
   const [text,setText]=useState("");
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  // Handle Escape key to exit maximize
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape" && isMaximized) {
+        setIsMaximized(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isMaximized]);
+
   const words=text.trim()?text.trim().split(/\s+/):[];
   const sentences=text.trim()?text.split(/[.!?]+/).filter(s=>s.trim()):[];
   const paragraphs=text.trim()?text.split(/\n\s*\n/).filter(p=>p.trim()):[];
@@ -25,24 +38,35 @@ export default function WordTool() {
     {val:unique,lbl:"Unique Words"},
   ];
   return(
-    <div>
+    <div className={`tk-editor-container ${isMaximized ? "tk-editor-maximized" : ""}`}>
       <div className="tk-tool-header">
         <h2 className="tk-tool-title">Word Counter &amp; Text Stats</h2>
         <div className="tk-tool-actions">
           <CopyBtn getText={()=>text}/>
           <ActionBtn danger onClick={()=>setText("")}>Clear</ActionBtn>
+          <button
+            onClick={() => setIsMaximized(!isMaximized)}
+            className="tk-editor-max-btn"
+            title={isMaximized ? "Exit fullscreen" : "Fullscreen editor"}
+          >
+            {isMaximized ? "✕" : "⊞"}
+          </button>
         </div>
       </div>
-      <textarea className="tk-textarea" style={{height:"180px",width:"100%",marginBottom:"1.5rem"}} value={text} onChange={e=>setText(e.target.value)} placeholder="Paste your text here..."/>
-      <div className="tk-stats-grid">
-        {stats.map(({val,lbl})=>(
-          <div key={lbl} className="tk-stat-card">
-            <div className="tk-stat-val">{val}</div>
-            <div className="tk-stat-lbl">{lbl}</div>
+      <textarea className={`tk-textarea ${isMaximized ? "tk-textarea-maximized" : ""}`} value={text} onChange={e=>setText(e.target.value)} placeholder="Paste your text here..."/>
+      {!isMaximized && (
+        <>
+          <div className="tk-stats-grid">
+            {stats.map(({val,lbl})=>(
+              <div key={lbl} className="tk-stat-card">
+                <div className="tk-stat-val">{val}</div>
+                <div className="tk-stat-lbl">{lbl}</div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      {topWords.length>0&&<div className="tk-top-words">{topWords.map(([w,c])=><div key={w} className="tk-word-chip">{w}<span>{c}</span></div>)}</div>}
+          {topWords.length>0&&<div className="tk-top-words">{topWords.map(([w,c])=><div key={w} className="tk-word-chip">{w}<span>{c}</span></div>)}</div>}
+        </>
+      )}
     </div>
   );
 }
