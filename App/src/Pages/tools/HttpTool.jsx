@@ -309,6 +309,230 @@ function resolveVars(str, vars) {
   });
 }
 
+// ── cURL parser ────────────────────────────────────────────────────────────────
+function parseCurl(curlStr) {
+  const result = {
+    method: "GET",
+    url: "",
+    headers: [],
+    params: [],
+    body: { raw: "", formData: [], urlEncoded: [] },
+    bodyType: "none",
+    auth: { type: "none" },
+    cookies: [],
+  };
+
+  if (!curlStr.trim()) return result;
+
+  // Remove 'curl' from the start and handle line continuations
+  curlStr = curlStr.replace(/^\s*curl\s+/, "").replace(/\\\n\s*/g, " ");
+
+  // Extract URL (quoted or unquoted)
+  const urlMatch = curlStr.match(/^(['"])(.*?)\1|^(\S+)/);
+  if (urlMatch) {
+    result.url = urlMatch[2] || urlMatch[3];
+    curlStr = curlStr.substring(urlMatch[0].length).trim();
+  }
+
+  // Parse flags
+  const flagRegex = /(?:^|\s)(-[a-zA-Z]|--[a-z-]+)(?:\s+(['"])(.*?)\2|(\S+))?/g;
+  let match;
+  const flags = {};
+
+  while ((match = flagRegex.exec(curlStr)) !== null) {
+    const flag = match[1];
+    const value = match[3] || match[4] || true;
+    if (!flags[flag]) flags[flag] = [];
+    flags[flag].push(value);
+  }
+
+  // Process method
+  if (flags["-X"] || flags["--request"]) {
+    result.method = (flags["-X"] || flags["--request"])[0].toUpperCase();
+  }
+
+  // Process headers
+  if (flags["-H"] || flags["--header"]) {
+    const headerLines = flags["-H"] || flags["--header"];
+    headerLines.forEach(h => {
+      const [key, ...valParts] = h.split(":").map(s => s.trim());
+      const val = valParts.join(":").trim();
+      if (key && key.toLowerCase() !== "cookie") {
+        result.headers.push(mkKV(key, val));
+      }
+    });
+  }
+
+  // Process cookies from header or --cookie flag
+  if (flags["-b"] || flags["--cookie"]) {
+    const cookieLines = flags["-b"] || flags["--cookie"];
+    cookieLines.forEach(c => {
+      const cookies = c.split(";").map(s => s.trim());
+      cookies.forEach(cookie => {
+        if (cookie) {
+          const [k, v] = cookie.split("=");
+          result.cookies.push(mkKV(k.trim(), v?.trim() || ""));
+        }
+      });
+    });
+  }
+
+  // Check for Authorization header with basic/bearer
+  const authHeader = result.headers.find(h => h.key.toLowerCase() === "authorization");
+  if (authHeader) {
+    if (authHeader.value.toLowerCase().startsWith("basic ")) {
+      result.auth.type = "basic";
+      try {
+        const decoded = atob(authHeader.value.substring(6));
+        const [username, password] = decoded.split(":");
+        result.auth.username = username;
+        result.auth.password = password;
+      } catch (e) {}
+    } else if (authHeader.value.toLowerCase().startsWith("bearer ")) {
+      result.auth.type = "bearer";
+      result.auth.token = authHeader.value.substring(7);
+    }
+  }
+
+  // Process basic auth from --user
+  if (flags["-u"] || flags["--user"]) {
+    const userpass = (flags["-u"] || flags["--user"])[0];
+    const [username, password] = userpass.split(":");
+    result.auth = { type: "basic", username, password };
+  }
+
+  // Process body
+  if (flags["-d"] || flags["--data"] || flags["--data-raw"]) {
+    const bodyData = flags["-d"] || flags["--data"] || flags["--data-raw"];
+    const bodyStr = bodyData.join("\n");
+    
+    // Try to detect body type
+    if (bodyStr.trim().startsWith("{") || bodyStr.trim().startsWith("[")) {
+      result.bodyType = "json";
+      result.body.raw = bodyStr;
+    } else if (bodyStr.includes("=")) {
+      result.bodyType = "x-www-form-urlencoded";
+      const pairs = bodyStr.split("&");
+      result.body.urlEncoded = pairs.map(p => {
+        const [k, v] = p.split("=");
+        return mkKV(decodeURIComponent(k), decodeURIComponent(v || ""));
+      });
+    } else {
+      result.bodyType = "text";
+      result.body.raw = bodyStr;
+    }
+  }
+
+  // Process form data
+  if (flags["-F"] || flags["--form"]) {
+    const formLines = flags["-F"] || flags["--form"];
+    result.bodyType = "form-data";
+    result.body.formData = formLines.map(f => {
+      const [k, v] = f.split("=", 2);
+      return mkKV(k.trim(), v?.trim() || "");
+    });
+  }
+
+  // Extract query params from URL
+  try {
+    const urlObj = new URL(result.url);
+    urlObj.searchParams.forEach((v, k) => {
+      result.params.push(mkKV(k, v));
+    });
+    // Remove query string from URL
+    result.url = urlObj.origin + urlObj.pathname;
+  } catch (e) {}
+
+  return result;
+}
+
+// ── cURL Import Modal ──────────────────────────────────────────────────────────
+function CurlImportModal({ onImport, onClose }) {
+  const [curlInput, setCurlInput] = useState("");
+
+  const handleImport = () => {
+    const parsed = parseCurl(curlInput);
+    onImport(parsed);
+    onClose();
+    setCurlInput("");
+  };
+
+  return (
+    <div style={{
+      position: "fixed",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      background: "rgba(0,0,0,0.5)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: 9999,
+    }}>
+      <div style={{
+        background: "var(--tk-bg)",
+        border: "1px solid var(--tk-border)",
+        borderRadius: "var(--tk-radius)",
+        padding: "1.5rem",
+        maxWidth: "600px",
+        width: "90%",
+        maxHeight: "80vh",
+        overflowY: "auto",
+        boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+          <h3 style={{ fontSize: "1rem", color: "var(--tk-text)", margin: 0 }}>Import cURL Request</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--tk-text-dim)", fontSize: "1.5rem", cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+
+        <div style={{ marginBottom: "1rem" }}>
+          <label style={S.label}>Paste your cURL command:</label>
+          <textarea
+            style={{ ...S.mono, minHeight: 200 }}
+            value={curlInput}
+            onChange={e => setCurlInput(e.target.value)}
+            placeholder={`curl 'https://api.example.com/endpoint' \\
+  -X POST \\
+  -H 'Content-Type: application/json' \\
+  -d '{"key":"value"}'`}
+          />
+        </div>
+
+        <div style={{ fontSize: "0.7rem", color: "var(--tk-text-dim)", marginBottom: "1rem", lineHeight: 1.6 }}>
+          <div>✓ Supports: URL, method, headers, body, form-data, basic auth, bearer token, cookies, query params</div>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button
+            onClick={onClose}
+            style={{
+              ...S.select,
+              color: "var(--tk-text-dim)",
+              border: "1px solid var(--tk-border-bright)",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleImport}
+            style={{
+              ...S.select,
+              background: "var(--tk-accent)",
+              color: "var(--tk-bg)",
+              border: "none",
+              cursor: "pointer",
+              fontWeight: 700,
+            }}
+          >
+            Import
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Run tests against response ────────────────────────────────────────────────
 function runTests(testCode, response) {
   const results = [];
@@ -374,6 +598,9 @@ export default function HttpTool() {
     mkKV("token",""),
   ]);
   const [varTab,   setVarTab]   = useState(false);
+
+  // ── cURL Import ──
+  const [showCurlModal, setShowCurlModal] = useState(false);
 
   // ── Response state ──
   const [response, setResponse] = useState(null);
@@ -489,6 +716,101 @@ export default function HttpTool() {
 
   const cancel = () => { abortRef.current?.abort(); };
 
+  // ── Import from cURL ──────────────────────────────────────────────────────
+  const importFromCurl = useCallback((parsed) => {
+    setMethod(parsed.method);
+    setUrl(parsed.url);
+    setParams(parsed.params.length > 0 ? parsed.params : [mkKV()]);
+    setHeaders(parsed.headers.length > 0 ? parsed.headers : [mkKV("Accept", "application/json")]);
+    setAuth(parsed.auth);
+    setCookies(parsed.cookies.length > 0 ? parsed.cookies : [mkRow()]);
+    setBodyType(parsed.bodyType);
+    setBody({
+      raw: parsed.body.raw,
+      formData: parsed.body.formData.length > 0 ? parsed.body.formData : [mkRow()],
+      urlEncoded: parsed.body.urlEncoded.length > 0 ? parsed.body.urlEncoded : [mkRow()],
+      binaryUrl: "",
+    });
+  }, []);
+
+  // ── Export to cURL ───────────────────────────────────────────────────────
+  const generateCurl = useCallback(() => {
+    let curlCmd = "curl ";
+
+    // Build URL with query params
+    let finalUrl = url;
+    const activeParams = params.filter(p => p.enabled && p.key);
+    if (activeParams.length) {
+      const q = new URLSearchParams(activeParams.map(p => [p.key, p.value]));
+      finalUrl += (finalUrl.includes("?") ? "&" : "?") + q.toString();
+    }
+    curlCmd += `'${finalUrl}'`;
+
+    // Add method if not GET
+    if (method !== "GET") {
+      curlCmd += ` \\\n  -X ${method}`;
+    }
+
+    // Add headers
+    const activeHeaders = headers.filter(h => h.enabled && h.key);
+    activeHeaders.forEach(h => {
+      curlCmd += ` \\\n  -H '${h.key}: ${h.value}'`;
+    });
+
+    // Add auth
+    if (auth.type === "basic") {
+      curlCmd += ` \\\n  --user '${auth.username || ""}:${auth.password || ""}'`;
+    } else if (auth.type === "bearer") {
+      curlCmd += ` \\\n  -H 'Authorization: Bearer ${auth.token || ""}'`;
+    } else if (auth.type === "api-key") {
+      if (auth.addTo === "header") {
+        curlCmd += ` \\\n  -H '${auth.keyName || ""}: ${auth.keyValue || ""}'`;
+      } else if (auth.addTo === "query") {
+        finalUrl += (finalUrl.includes("?") ? "&" : "?") + encodeURIComponent(auth.keyName || "") + "=" + encodeURIComponent(auth.keyValue || "");
+      }
+    }
+
+    // Add cookies
+    const activeCookies = cookies.filter(c => c.enabled && c.key);
+    if (activeCookies.length) {
+      const cookieStr = activeCookies.map(c => `${c.key}=${c.value}`).join("; ");
+      curlCmd += ` \\\n  -b '${cookieStr}'`;
+    }
+
+    // Add body
+    if (method !== "GET" && method !== "HEAD") {
+      if (bodyType === "json" || bodyType === "text") {
+        const bodyContent = body.raw;
+        if (bodyContent) {
+          const escaped = bodyContent.replace(/'/g, "'\"'\"'");
+          curlCmd += ` \\\n  -d '${escaped}'`;
+        }
+      } else if (bodyType === "x-www-form-urlencoded") {
+        const urlEncoded = body.urlEncoded.filter(r => r.enabled && r.key);
+        if (urlEncoded.length) {
+          const bodyStr = new URLSearchParams(urlEncoded.map(r => [r.key, r.value])).toString();
+          curlCmd += ` \\\n  -d '${bodyStr}'`;
+        }
+      } else if (bodyType === "form-data") {
+        const formData = body.formData.filter(r => r.enabled && r.key);
+        formData.forEach(r => {
+          curlCmd += ` \\\n  -F '${r.key}=${r.value}'`;
+        });
+      }
+    }
+
+    return curlCmd;
+  }, [method, url, params, headers, auth, cookies, bodyType, body]);
+
+  const copyCurlToClipboard = () => {
+    const curlCmd = generateCurl();
+    navigator.clipboard.writeText(curlCmd).then(() => {
+      alert("cURL command copied to clipboard!");
+    }).catch(err => {
+      console.error("Failed to copy:", err);
+    });
+  };
+
   // ── URL bar with variable highlight ──────────────────────────────────────
   const urlHasVars = /\{\{/.test(url);
 
@@ -500,6 +822,14 @@ export default function HttpTool() {
           <h2 className="tk-tool-title">HTTP Client</h2>
         </div>
         <div className="tk-tool-actions">
+          <button onClick={()=>setShowCurlModal(true)}
+            style={{...S.select,fontSize:"0.62rem",letterSpacing:"0.1em",color:"var(--tk-text-dim)",borderColor:"var(--tk-border-bright)",marginRight:6}}>
+            Import cURL
+          </button>
+          <button onClick={copyCurlToClipboard}
+            style={{...S.select,fontSize:"0.62rem",letterSpacing:"0.1em",color:"var(--tk-text-dim)",borderColor:"var(--tk-border-bright)",marginRight:6}}>
+            Export cURL
+          </button>
           <button onClick={()=>setVarTab(v=>!v)}
             style={{...S.select,fontSize:"0.62rem",letterSpacing:"0.1em",color:varTab?"var(--tk-accent)":"var(--tk-text-dim)",borderColor:varTab?"var(--tk-accent)":"var(--tk-border-bright)"}}>
             {"{{}"} Variables
@@ -574,6 +904,14 @@ export default function HttpTool() {
 
       {/* ── Response ── */}
       <ResponsePanel response={response} loading={loading}/>
+
+      {/* ── cURL Import Modal ── */}
+      {showCurlModal && (
+        <CurlImportModal
+          onImport={importFromCurl}
+          onClose={() => setShowCurlModal(false)}
+        />
+      )}
 
       <style>{`@keyframes tk-pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
     </div>
