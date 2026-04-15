@@ -14,6 +14,7 @@ import CodeRunnerTool  from "./tools/CodeRunnerTool";
 import HttpTool        from "./tools/HttpTool";
 import NotesTool       from "./tools/NotesTool";
 import Magic8BallTool  from "./tools/Magic8BallTool";
+import CalculatorTool  from "./tools/CalculatorTool";
 
 const ALL_TOOLS = [
   { id:"magic",  label:"ORACLE",     component: Magic8BallTool     },
@@ -28,6 +29,7 @@ const ALL_TOOLS = [
   { id:"color",  label:"COLOR",      component: ColorTool          },
   { id:"diff",   label:"DIFF",       component: DiffTool           },
   { id:"word",   label:"WORD COUNT", component: WordTool           },
+  { id:"calc",   label:"CALCULATOR", component: CalculatorTool     },
 ];
 
 const DEFAULT_MAIN_TOOLS = [
@@ -37,6 +39,7 @@ const DEFAULT_MAIN_TOOLS = [
   { id:"html",   label:"HTML",       component: HtmlPreviewerTool  },
   { id:"code",   label:"CODE",       component: CodeRunnerTool     },
   { id:"http",   label:"HTTP",       component: HttpTool           },
+  { id:"calc",   label:"CALCULATOR", component: CalculatorTool     },
 ];
 
 const TOOLS = ALL_TOOLS;
