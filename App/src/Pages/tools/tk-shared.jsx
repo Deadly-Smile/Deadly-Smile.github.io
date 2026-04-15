@@ -49,7 +49,7 @@ export function ActionBtn({ onClick, danger, disabled, children, style }) {
 export function StatusBar({ msg, type }) {
   return (
     <div className={`tk-status-bar${type ? " tk-" + type : ""}`}>
-      {msg || "Ready."}
+      {msg}
     </div>
   );
 }

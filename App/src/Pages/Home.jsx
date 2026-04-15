@@ -21,6 +21,7 @@ import {
   SiDocker,
   SiFastapi,
 } from "react-icons/si";
+import { IoGameController } from "react-icons/io5";
 import { FaJava } from "react-icons/fa";
 import { BiLogoReact } from "react-icons/bi";
 import { Link } from "react-router-dom";
@@ -315,8 +316,16 @@ const Home = () => {
                   <Link 
                     className="text-red-600 hover:text-teal-300 animate-custom-bounce custom-bounce-small"
                     to={"/toolz"}
+                    title="Tools"
                   >
                     <AiFillTool />
+                  </Link>
+                  <Link 
+                    className="text-purple-500 hover:text-teal-300 animate-custom-bounce custom-bounce-small"
+                    to={"/games"}
+                    title="Games"
+                  >
+                    <IoGameController/>
                   </Link>
                   <a
                     className="hover:text-teal-300 animate-custom-bounce custom-bounce-small"

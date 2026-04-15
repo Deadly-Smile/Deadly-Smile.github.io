@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import "../toolkit.css";
 
 import JsonTool        from "./tools/JsonTool";
@@ -232,8 +232,14 @@ const Toolz = ({ embedded = false }) => {
       <div className="tk-noise" />
 
       <header className="tk-header">
-        <div className="tk-logo">TOOL<span>Z</span></div>
-
+        <Link 
+          to="/" 
+          className="tk-logo"
+          title="Go to Home"
+          style={{ textDecoration: "none", cursor: "pointer", color: "inherit" }}
+        >
+          ANIK<span> SAHA</span>
+        </Link>
         <button
           onClick={() => navigate("/white-board")}
           title="Go to Whiteboard"
