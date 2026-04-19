@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { ActionBtn, StatusBar } from '../tools/tk-shared';
 
 export default function Minesweeper() {
@@ -8,8 +8,26 @@ export default function Minesweeper() {
   const [gameOver, setGameOver] = useState(false);
   const [won, setWon] = useState(false);
   const [time, setTime] = useState(0);
+  const [bestTime, setBestTime] = useState({});
   const [status, setStatus] = useState({ msg: "Select difficulty and click START", type: "" });
   const timerRef = useRef(null);
+
+  // Load best times from localStorage on mount
+  useEffect(() => {
+    const savedBestTimes = localStorage.getItem('minesweeperBestTimes');
+    if (savedBestTimes) {
+      setBestTime(JSON.parse(savedBestTimes));
+    }
+  }, []);
+
+  const saveBestTime = (difficulty, newTime) => {
+    const currentBest = bestTime[difficulty] || Infinity;
+    if (newTime < currentBest) {
+      const updatedBestTimes = { ...bestTime, [difficulty]: newTime };
+      setBestTime(updatedBestTimes);
+      localStorage.setItem('minesweeperBestTimes', JSON.stringify(updatedBestTimes));
+    }
+  };
 
   const DIFFICULTIES = {
     easy: { rows: 8, cols: 8, mines: 10, label: 'Easy' },
@@ -128,6 +146,7 @@ export default function Minesweeper() {
     } else if (checkWin(newBoard)) {
       setGameActive(false);
       setWon(true);
+      saveBestTime(difficulty, time);
       setStatus({ msg: `✓ You won! Time: ${time}s`, type: 'ok' });
       clearInterval(timerRef.current);
     }
@@ -215,6 +234,10 @@ export default function Minesweeper() {
           <div className="bg-slate-800 px-3 py-1 rounded text-center">
             <p className="text-xs text-gray-400">Time</p>
             <p className="text-lg font-bold text-blue-400">{time}s</p>
+          </div>
+          <div className="bg-slate-800 px-3 py-1 rounded text-center">
+            <p className="text-xs text-gray-400">Best</p>
+            <p className="text-lg font-bold text-emerald-400">{bestTime[difficulty] ? `${bestTime[difficulty]}s` : '-'}</p>
           </div>
         </div>
       )}

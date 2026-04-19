@@ -4,8 +4,24 @@ import { ActionBtn, StatusBar } from '../tools/tk-shared';
 export default function Snake() {
   const canvasRef = useRef(null);
   const [score, setScore] = useState(0);
+  const [highScore, setHighScore] = useState(0);
   const [gameActive, setGameActive] = useState(false);
   const [status, setStatus] = useState({ msg: "Click START to begin", type: "" });
+
+  // Load high score from localStorage on mount
+  useEffect(() => {
+    const savedHighScore = localStorage.getItem('snakeHighScore');
+    if (savedHighScore) {
+      setHighScore(parseInt(savedHighScore, 10));
+    }
+  }, []);
+
+  const saveHighScore = (newScore) => {
+    if (newScore > highScore) {
+      setHighScore(newScore);
+      localStorage.setItem('snakeHighScore', newScore.toString());
+    }
+  };
   const gameStateRef = useRef({
     snake: [{ x: 10, y: 10 }],
     food: { x: 15, y: 15 },
@@ -66,6 +82,7 @@ export default function Snake() {
 
       if (state.gameOver) {
         setGameActive(false);
+        saveHighScore(state.score);
         setStatus({ msg: `Game Over! Final Score: ${state.score}`, type: "err" });
         window.removeEventListener('keydown', handleKeyDown);
         clearInterval(gameLoop);
@@ -146,6 +163,10 @@ export default function Snake() {
         <div className="bg-slate-800 p-2 rounded px-4">
           <p className="text-xs text-gray-400">Score</p>
           <p className="text-lg font-bold text-green-400">{score}</p>
+        </div>
+        <div className="bg-slate-800 p-2 rounded px-4">
+          <p className="text-xs text-gray-400">High Score</p>
+          <p className="text-lg font-bold text-emerald-400">{highScore}</p>
         </div>
       </div>
 

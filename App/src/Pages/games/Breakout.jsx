@@ -5,8 +5,10 @@ export default function Breakout() {
   const canvasRef = useRef(null);
   const [gameActive, setGameActive] = useState(false);
   const [score, setScore] = useState(0);
+  const [highScore, setHighScore] = useState(0);
   const [level, setLevel] = useState(1);
   const [status, setStatus] = useState({ msg: "Click START to begin", type: "" });
+  const touchRef = useRef({ x: 0, active: false });
   const gameStateRef = useRef({
     score: 0,
     level: 1,
@@ -27,6 +29,21 @@ export default function Breakout() {
       gameOver: false,
       won: false,
     };
+  };
+
+  // Load high score from localStorage on mount
+  useEffect(() => {
+    const savedHighScore = localStorage.getItem('breakoutHighScore');
+    if (savedHighScore) {
+      setHighScore(parseInt(savedHighScore, 10));
+    }
+  }, []);
+
+  const saveHighScore = (newScore) => {
+    if (newScore > highScore) {
+      setHighScore(newScore);
+      localStorage.setItem('breakoutHighScore', newScore.toString());
+    }
   };
 
   const generateBricks = (lvl) => {
@@ -99,9 +116,15 @@ export default function Breakout() {
   const updateGame = (state) => {
     const { canvas, ball, paddle, bricks, keys } = state;
 
-    // Move paddle
+    // Move paddle - keyboard control
     if (keys['ArrowLeft'] && paddle.x > 0) paddle.x -= 7;
     if (keys['ArrowRight'] && paddle.x < canvas.width - paddle.width) paddle.x += 7;
+
+    // Move paddle - touch control
+    if (touchRef.current.active) {
+      const targetX = touchRef.current.x - paddle.width / 2;
+      paddle.x = Math.max(0, Math.min(canvas.width - paddle.width, targetX));
+    }
 
     // Move ball
     ball.x += ball.dx;
@@ -158,11 +181,17 @@ export default function Breakout() {
       state.won = true;
     }
 
-    // Speed increase with level
-    const speed = 5 + gameStateRef.current.level;
+    // Speed increase with level - capped to prevent excessive acceleration
+    const baseSpeed = 4 + gameStateRef.current.level * 0.3;
+    const maxSpeed = 7 + gameStateRef.current.level * 0.5;
     const ballSpeed = Math.sqrt(ball.dx ** 2 + ball.dy ** 2);
-    if (ballSpeed < speed) {
-      const scale = speed / ballSpeed;
+    
+    if (ballSpeed < baseSpeed) {
+      const scale = baseSpeed / ballSpeed;
+      ball.dx *= scale;
+      ball.dy *= scale;
+    } else if (ballSpeed > maxSpeed) {
+      const scale = maxSpeed / ballSpeed;
       ball.dx *= scale;
       ball.dy *= scale;
     }
@@ -173,7 +202,7 @@ export default function Breakout() {
     setScore(0);
     setLevel(1);
     gameStateRef.current = { score: 0, level: 1, bricksDestroyed: 0 };
-    setStatus({ msg: "Game started! Use arrows to move.", type: "ok" });
+    setStatus({ msg: "Game started! Use arrows or touch to move.", type: "ok" });
     const state = initGame();
 
     const handleKeyDown = (e) => {
@@ -184,15 +213,41 @@ export default function Breakout() {
       state.keys[e.key] = false;
     };
 
+    const handleTouchStart = (e) => {
+      touchRef.current.active = true;
+      const touch = e.touches[0];
+      const rect = canvasRef.current.getBoundingClientRect();
+      touchRef.current.x = touch.clientX - rect.left;
+    };
+
+    const handleTouchMove = (e) => {
+      if (touchRef.current.active) {
+        const touch = e.touches[0];
+        const rect = canvasRef.current.getBoundingClientRect();
+        touchRef.current.x = touch.clientX - rect.left;
+      }
+    };
+
+    const handleTouchEnd = () => {
+      touchRef.current.active = false;
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    canvasRef.current?.addEventListener('touchstart', handleTouchStart);
+    canvasRef.current?.addEventListener('touchmove', handleTouchMove);
+    canvasRef.current?.addEventListener('touchend', handleTouchEnd);
 
     const gameLoop = () => {
       if (state.gameOver) {
         setGameActive(false);
+        saveHighScore(gameStateRef.current.score);
         setStatus({ msg: `Game Over! Final Score: ${gameStateRef.current.score}`, type: "err" });
         window.removeEventListener('keydown', handleKeyDown);
         window.removeEventListener('keyup', handleKeyUp);
+        canvasRef.current?.removeEventListener('touchstart', handleTouchStart);
+        canvasRef.current?.removeEventListener('touchmove', handleTouchMove);
+        canvasRef.current?.removeEventListener('touchend', handleTouchEnd);
         return;
       }
 
@@ -255,6 +310,10 @@ export default function Breakout() {
         <div className="bg-slate-800 p-2 rounded px-4">
           <p className="text-xs text-gray-400">Score</p>
           <p className="text-lg font-bold text-yellow-400">{score}</p>
+        </div>
+        <div className="bg-slate-800 p-2 rounded px-4">
+          <p className="text-xs text-gray-400">High Score</p>
+          <p className="text-lg font-bold text-emerald-400">{highScore}</p>
         </div>
       </div>
 

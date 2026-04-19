@@ -5,7 +5,23 @@ export default function FlappyBird() {
   const canvasRef = useRef(null);
   const [gameActive, setGameActive] = useState(false);
   const [score, setScore] = useState(0);
+  const [highScore, setHighScore] = useState(0);
   const [status, setStatus] = useState({ msg: "Click or press SPACE to flap", type: "" });
+
+  // Load high score from localStorage on mount
+  useEffect(() => {
+    const savedHighScore = localStorage.getItem('flappybirdHighScore');
+    if (savedHighScore) {
+      setHighScore(parseInt(savedHighScore, 10));
+    }
+  }, []);
+
+  const saveHighScore = (newScore) => {
+    if (newScore > highScore) {
+      setHighScore(newScore);
+      localStorage.setItem('flappybirdHighScore', newScore.toString());
+    }
+  };
   const gameStateRef = useRef({
     bird: { x: 50, y: 150, width: 20, height: 20, velocity: 0 },
     pipes: [],
@@ -103,6 +119,7 @@ export default function FlappyBird() {
 
       if (state.gameOver) {
         setGameActive(false);
+        saveHighScore(state.score);
         setStatus({ msg: `Game Over! Score: ${state.score}`, type: 'err' });
         window.removeEventListener('click', handleFlap);
         clearInterval(gameLoop);
@@ -168,6 +185,10 @@ export default function FlappyBird() {
         <div className="bg-slate-800 p-2 rounded px-4">
           <p className="text-xs text-gray-400">Score</p>
           <p className="text-lg font-bold text-yellow-400">{score}</p>
+        </div>
+        <div className="bg-slate-800 p-2 rounded px-4">
+          <p className="text-xs text-gray-400">High Score</p>
+          <p className="text-lg font-bold text-emerald-400">{highScore}</p>
         </div>
       </div>
 

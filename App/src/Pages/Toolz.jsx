@@ -15,6 +15,7 @@ import HttpTool        from "./tools/HttpTool";
 import NotesTool       from "./tools/NotesTool";
 import Magic8BallTool  from "./tools/Magic8BallTool";
 import CalculatorTool  from "./tools/CalculatorTool";
+import JWTTool         from "./tools/JWTTool";
 
 const ALL_TOOLS = [
   { id:"magic",  label:"ORACLE",     component: Magic8BallTool     },
@@ -25,6 +26,7 @@ const ALL_TOOLS = [
   { id:"http",   label:"HTTP",       component: HttpTool           },
   { id:"regex",  label:"REGEX",      component: RegexTool          },
   { id:"base64", label:"BASE64",     component: Base64Tool         },
+  { id:"jwt",    label:"JWT",        component: JWTTool            },
   { id:"hash",   label:"HASH",       component: HashTool           },
   { id:"color",  label:"COLOR",      component: ColorTool          },
   { id:"diff",   label:"DIFF",       component: DiffTool           },
@@ -39,6 +41,7 @@ const DEFAULT_MAIN_TOOLS = [
   { id:"html",   label:"HTML",       component: HtmlPreviewerTool  },
   { id:"code",   label:"CODE",       component: CodeRunnerTool     },
   { id:"http",   label:"HTTP",       component: HttpTool           },
+  { id:"jwt",    label:"JWT",        component: JWTTool            },
   { id:"calc",   label:"CALCULATOR", component: CalculatorTool     },
 ];
 

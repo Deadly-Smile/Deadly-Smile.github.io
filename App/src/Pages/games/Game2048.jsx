@@ -1,12 +1,28 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ActionBtn, StatusBar } from '../tools/tk-shared';
 
 export default function Game2048() {
   const [board, setBoard] = useState(initBoard());
   const [score, setScore] = useState(0);
+  const [highScore, setHighScore] = useState(0);
   const [gameOver, setGameOver] = useState(false);
   const [won, setWon] = useState(false);
   const [status, setStatus] = useState({ msg: "Use arrow keys to move tiles", type: "" });
+
+  // Load high score from localStorage on mount
+  useEffect(() => {
+    const savedHighScore = localStorage.getItem('game2048HighScore');
+    if (savedHighScore) {
+      setHighScore(parseInt(savedHighScore, 10));
+    }
+  }, []);
+
+  const saveHighScore = (newScore) => {
+    if (newScore > highScore) {
+      setHighScore(newScore);
+      localStorage.setItem('game2048HighScore', newScore.toString());
+    }
+  };
 
   function initBoard() {
     const newBoard = Array(4).fill(null).map(() => Array(4).fill(0));
@@ -84,6 +100,7 @@ export default function Game2048() {
 
       if (!canMove && !newBoard.flat().some(v => v === 0)) {
         setGameOver(true);
+        saveHighScore(newScore);
         setStatus({ msg: `Game Over! Score: ${newScore}`, type: "err" });
       }
     }
@@ -106,9 +123,15 @@ export default function Game2048() {
         <p className="text-sm text-gray-400 mb-4">Combine tiles to reach 2048!</p>
       </div>
 
-      <div className="bg-slate-800 p-2 rounded px-4 mb-2">
-        <p className="text-xs text-gray-400">Score</p>
-        <p className="text-lg font-bold text-cyan-400">{score}</p>
+      <div className="flex gap-4 justify-center w-full text-center mb-2">
+        <div className="bg-slate-800 p-2 rounded px-4">
+          <p className="text-xs text-gray-400">Score</p>
+          <p className="text-lg font-bold text-cyan-400">{score}</p>
+        </div>
+        <div className="bg-slate-800 p-2 rounded px-4">
+          <p className="text-xs text-gray-400">High Score</p>
+          <p className="text-lg font-bold text-emerald-400">{highScore}</p>
+        </div>
       </div>
 
       <div className="grid grid-cols-4 gap-2 bg-slate-700 p-4 rounded">
@@ -139,7 +162,7 @@ export default function Game2048() {
       </div>
 
       <div className="flex gap-2 justify-center">
-        <ActionBtn onClick={() => { setBoard(initBoard()); setScore(0); setGameOver(false); setWon(false); setStatus({ msg: "Game restarted!", type: "" }); }}>
+        <ActionBtn onClick={() => { saveHighScore(score); setBoard(initBoard()); setScore(0); setGameOver(false); setWon(false); setStatus({ msg: "Game restarted!", type: "" }); }}>
           New Game
         </ActionBtn>
       </div>

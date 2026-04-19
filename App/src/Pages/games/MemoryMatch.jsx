@@ -8,6 +8,7 @@ export default function MemoryMatch() {
   const [flipped, setFlipped] = useState([]);
   const [matched, setMatched] = useState([]);
   const [moves, setMoves] = useState(0);
+  const [bestMoves, setBestMoves] = useState(0);
   const [gameWon, setGameWon] = useState(false);
   const [status, setStatus] = useState({ msg: "Click cards to find matching pairs", type: "" });
 
@@ -15,12 +16,25 @@ export default function MemoryMatch() {
     initGame();
   }, []);
 
+  // Load best moves from localStorage on mount
+  useEffect(() => {
+    const savedBestMoves = localStorage.getItem('memorymatchBestMoves');
+    if (savedBestMoves) {
+      setBestMoves(parseInt(savedBestMoves, 10));
+    }
+  }, []);
+
   useEffect(() => {
     if (matched.length === EMOJIS.length * 2) {
       setGameWon(true);
+      // Save best moves
+      if (bestMoves === 0 || moves < bestMoves) {
+        setBestMoves(moves);
+        localStorage.setItem('memorymatchBestMoves', moves.toString());
+      }
       setStatus({ msg: `✓ You won! Moves: ${moves}`, type: 'ok' });
     }
-  }, [matched, moves]);
+  }, [matched, moves, bestMoves]);
 
   const initGame = () => {
     const shuffled = [...EMOJIS, ...EMOJIS].sort(() => Math.random() - 0.5);
@@ -57,9 +71,15 @@ export default function MemoryMatch() {
         <p className="text-sm text-gray-400 mb-4">Find all matching pairs!</p>
       </div>
 
-      <div className="bg-slate-800 p-2 rounded px-4 mb-2">
-        <p className="text-xs text-gray-400">Moves</p>
-        <p className="text-lg font-bold text-pink-400">{moves}</p>
+      <div className="flex gap-4 justify-center w-full text-center mb-2">
+        <div className="bg-slate-800 p-2 rounded px-4">
+          <p className="text-xs text-gray-400">Moves</p>
+          <p className="text-lg font-bold text-pink-400">{moves}</p>
+        </div>
+        <div className="bg-slate-800 p-2 rounded px-4">
+          <p className="text-xs text-gray-400">Best</p>
+          <p className="text-lg font-bold text-emerald-400">{bestMoves > 0 ? bestMoves : '-'}</p>
+        </div>
       </div>
 
       <div className="grid grid-cols-6 gap-3 mb-4">
