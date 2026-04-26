@@ -9,6 +9,7 @@ import { indentWithTab } from "@codemirror/commands";
 import SNIPPETS from "../../Helper/snippets";
 import { Modal, InputModal, useModal, ConfirmModal } from "../../Utils/Modal";
 import { Toast, showToast } from "../../Utils/Toast";
+import { createFileId } from "../../Helper/generator";
 import { getAllTabs, saveAllTabs, getActiveTabId, setActiveTabId, saveFile, fileExists, getSavedFiles, deleteFile } from "../../Helper/storageUtils";
 
 const STORAGE_KEY_PREFIX = "coderunner_";
