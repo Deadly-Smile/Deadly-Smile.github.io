@@ -16,6 +16,7 @@ import NotesTool       from "./tools/NotesTool";
 import Magic8BallTool  from "./tools/Magic8BallTool";
 import CalculatorTool  from "./tools/CalculatorTool";
 import JWTTool         from "./tools/JWTTool";
+import PdfReaderTool   from "./tools/PdfReaderTool";
 
 const ALL_TOOLS = [
   { id:"magic",  label:"ORACLE",     component: Magic8BallTool     },
@@ -24,6 +25,7 @@ const ALL_TOOLS = [
   { id:"html",   label:"HTML",       component: HtmlPreviewerTool  },
   { id:"code",   label:"CODE",       component: CodeRunnerTool     },
   { id:"http",   label:"HTTP",       component: HttpTool           },
+  { id:"pdf",    label:"PDF READER", component: PdfReaderTool      },
   { id:"regex",  label:"REGEX",      component: RegexTool          },
   { id:"base64", label:"BASE64",     component: Base64Tool         },
   { id:"jwt",    label:"JWT",        component: JWTTool            },
