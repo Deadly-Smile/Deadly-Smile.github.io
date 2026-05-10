@@ -17,6 +17,7 @@ import Magic8BallTool  from "./tools/Magic8BallTool";
 import CalculatorTool  from "./tools/CalculatorTool";
 import JWTTool         from "./tools/JWTTool";
 import PdfReaderTool   from "./tools/PdfReaderTool";
+import Footer from "./components/Footer";
 
 const ALL_TOOLS = [
   { id:"magic",  label:"ORACLE",     component: Magic8BallTool     },
@@ -37,7 +38,7 @@ const ALL_TOOLS = [
 ];
 
 const DEFAULT_MAIN_TOOLS = [
-  { id:"magic",  label:"ORACLE",     component: Magic8BallTool     },
+  { id:"word",   label:"WORD COUNT", component: WordTool           },
   { id:"notes",  label:"NOTES",      component: NotesTool          },
   { id:"json",   label:"JSON",       component: JsonTool           },
   { id:"html",   label:"HTML",       component: HtmlPreviewerTool  },
@@ -176,7 +177,7 @@ function ToolNav({ active, setActive, sticky, mainTools, otherTools, onSettingsC
 }
 
 const Toolz = ({ embedded = false }) => {
-  const [active, setActive] = useState("magic");
+  const [active, setActive] = useState("word");
   const [clock,  setClock]  = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [mainToolIds, setMainToolIds] = useState(() => {
@@ -232,53 +233,56 @@ const Toolz = ({ embedded = false }) => {
   }
 
   return (
-    <div className="tk-root">
-      <div className="tk-scanline" />
-      <div className="tk-noise" />
+    <>
+      <div className="tk-root">
+        <div className="tk-scanline" />
+        <div className="tk-noise" />
 
-      <header className="tk-header">
-        <Link 
-          to="/" 
-          className="tk-logo"
-          title="Go to Home"
-          style={{ textDecoration: "none", cursor: "pointer", color: "inherit" }}
-        >
-          ANIK<span> SAHA</span>
-        </Link>
-        <button
-          onClick={() => navigate("/white-board")}
-          title="Go to Whiteboard"
-          className="tk-whiteboard-btn"
-        >
-          <WhiteboardIcon />
-          WHITEBOARD
-        </button>
+        <header className="tk-header">
+          <Link 
+            to="/" 
+            className="tk-logo"
+            title="Go to Home"
+            style={{ textDecoration: "none", cursor: "pointer", color: "inherit" }}
+          >
+            ANIK<span> SAHA</span>
+          </Link>
+          <button
+            onClick={() => navigate("/white-board")}
+            title="Go to Whiteboard"
+            className="tk-whiteboard-btn"
+          >
+            <WhiteboardIcon />
+            WHITEBOARD
+          </button>
 
-        <div className="tk-clock">{clock}</div>
-      </header>
+          <div className="tk-clock">{clock}</div>
+        </header>
 
-      <ToolNav 
-        active={active} 
-        setActive={setActive} 
-        mainTools={mainTools}
-        otherTools={otherTools}
-        onSettingsClick={() => setShowSettings(true)}
-      />
-
-      <main className="tk-main">
-        <div className="tk-tool-section">
-          {ActiveTool && <ActiveTool />}
-        </div>
-      </main>
-
-      {showSettings && (
-        <SettingsModal 
-          mainToolIds={mainToolIds} 
-          setMainToolIds={setMainToolIds}
-          onClose={() => setShowSettings(false)}
+        <ToolNav 
+          active={active} 
+          setActive={setActive} 
+          mainTools={mainTools}
+          otherTools={otherTools}
+          onSettingsClick={() => setShowSettings(true)}
         />
-      )}
-    </div>
+
+        <main className="tk-main">
+          <div className="tk-tool-section">
+            {ActiveTool && <ActiveTool />}
+          </div>
+        </main>
+
+        {showSettings && (
+          <SettingsModal 
+            mainToolIds={mainToolIds} 
+            setMainToolIds={setMainToolIds}
+            onClose={() => setShowSettings(false)}
+          />
+        )}
+      </div>
+      <Footer/>
+    </>
   );
 };
 
