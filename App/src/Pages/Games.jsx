@@ -5,14 +5,18 @@ import Snake from "./games/Snake";
 import Hangman from "./games/Hangman";
 import MemoryMatch from "./games/MemoryMatch";
 import FlappyBird from "./games/FlappyBird";
+import Tetris from "./games/Tetris";
 import Footer from "./components/Footer";
+import CheckMate from "./games/Chess";
 
 const GAMES = [
-  { id: "breakout", label: "🎮 BREAKOUT", component: Breakout, desc: "Break bricks and level up!" },
-  { id: "minesweeper", label: "💣 MINESWEEPER", component: Minesweeper, desc: "Find all safe cells!" },
-  { id: "snake", label: "🐍 SNAKE", component: Snake, desc: "Eat food, avoid yourself!" },
+  { id: "chess", label: "♟ CHESS", component: CheckMate, desc: "Beat the AI opponent!" },
+  { id: "tetris", label: "🟩 TETRIS", component: Tetris, desc: "Stack blocks and clear lines!" },
   { id: "hangman", label: "🎯 HANGMAN", component: Hangman, desc: "Guess the word" },
   { id: "memory", label: "🧠 MEMORY", component: MemoryMatch, desc: "Find matching pairs" },
+  { id: "minesweeper", label: "💣 MINESWEEPER", component: Minesweeper, desc: "Find all safe cells!" },
+  { id: "snake", label: "🐍 SNAKE", component: Snake, desc: "Eat food, avoid yourself!" },
+  { id: "breakout", label: "🎮 BREAKOUT", component: Breakout, desc: "Break bricks and level up!" },
   { id: "flappy", label: "🐦 FLAPPY BIRD", component: FlappyBird, desc: "Avoid the pipes" },
 ];
 
