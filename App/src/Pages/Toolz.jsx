@@ -17,6 +17,11 @@ import Magic8BallTool  from "./tools/Magic8BallTool";
 import CalculatorTool  from "./tools/CalculatorTool";
 import JWTTool         from "./tools/JWTTool";
 import PdfReaderTool   from "./tools/PdfReaderTool";
+import CronExpressionParser from "./tools/CronExpressionParser";
+import TimestampConverter from "./tools/TimestampConverter";
+import QRCodeGenerator from "./tools/QRCodeGenerator";
+import CSVTSVConverter from "./tools/CSVTSVConverter";
+import PasswordGenerator from "./tools/PasswordGenerator";
 import Footer from "./components/Footer";
 
 const ALL_TOOLS = [
@@ -35,6 +40,11 @@ const ALL_TOOLS = [
   { id:"diff",   label:"DIFF",       component: DiffTool           },
   { id:"word",   label:"WORD COUNT", component: WordTool           },
   { id:"calc",   label:"CALCULATOR", component: CalculatorTool     },
+  { id:"cron",   label:"CRON",       component: CronExpressionParser },
+  { id:"time",   label:"TIMESTAMP",  component: TimestampConverter },
+  { id:"qr",     label:"QR CODE",    component: QRCodeGenerator    },
+  { id:"csv",    label:"CSV/TSV",    component: CSVTSVConverter    },
+  { id:"pass",   label:"PASSWORD",   component: PasswordGenerator  },
 ];
 
 const DEFAULT_MAIN_TOOLS = [
@@ -46,6 +56,8 @@ const DEFAULT_MAIN_TOOLS = [
   { id:"http",   label:"HTTP",       component: HttpTool           },
   { id:"jwt",    label:"JWT",        component: JWTTool            },
   { id:"calc",   label:"CALCULATOR", component: CalculatorTool     },
+  { id:"time",   label:"TIMESTAMP",  component: TimestampConverter },
+  { id:"pass",   label:"PASSWORD",   component: PasswordGenerator  },
 ];
 
 const TOOLS = ALL_TOOLS;
