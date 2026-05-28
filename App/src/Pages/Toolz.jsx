@@ -54,7 +54,7 @@ const DEFAULT_MAIN_TOOLS = [
   { id:"html",   label:"HTML",       component: HtmlPreviewerTool  },
   { id:"code",   label:"CODE",       component: CodeRunnerTool     },
   { id:"http",   label:"HTTP",       component: HttpTool           },
-  { id:"jwt",    label:"JWT",        component: JWTTool            },
+  { id:"qr",     label:"QR CODE",    component: QRCodeGenerator    },
   { id:"calc",   label:"CALCULATOR", component: CalculatorTool     },
   { id:"time",   label:"TIMESTAMP",  component: TimestampConverter },
   { id:"pass",   label:"PASSWORD",   component: PasswordGenerator  },

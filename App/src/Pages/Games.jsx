@@ -8,6 +8,7 @@ import FlappyBird from "./games/FlappyBird";
 import Tetris from "./games/Tetris";
 import Footer from "./components/Footer";
 import CheckMate from "./games/Chess";
+import Solitaire from "./games/Solitaire";
 
 const GAMES = [
   { id: "chess", label: "♟ CHESS", component: CheckMate, desc: "Beat the AI opponent!" },
@@ -18,6 +19,7 @@ const GAMES = [
   { id: "snake", label: "🐍 SNAKE", component: Snake, desc: "Eat food, avoid yourself!" },
   { id: "breakout", label: "🎮 BREAKOUT", component: Breakout, desc: "Break bricks and level up!" },
   { id: "flappy", label: "🐦 FLAPPY BIRD", component: FlappyBird, desc: "Avoid the pipes" },
+  { id: "Solitaire", label: "🃏 SOLITAIRE", component: Solitaire, desc: "Play the classic card game!" },
 ];
 
 const Games = () => {
