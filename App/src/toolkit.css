@@ -1332,3 +1332,320 @@
   white-space: pre-wrap;
   word-wrap: break-word;
 }
+
+/* this is new version, I suck at css :/ had to do it this way */
+.tk-root {
+  display: flex;
+  flex-direction: column;
+}
+.tk-root--embedded {
+  min-height: unset;
+  height: 100%;
+}
+.tk-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+ 
+/* ── Sidebar ──────────────────────────────────────────────────── */
+ 
+.tk-sidebar {
+  width: 186px;
+  min-width: 186px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--tk-border);
+  background: var(--tk-surface);
+  overflow: hidden;
+}
+.tk-sidebar-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--tk-border);
+  color: var(--tk-text-dim);
+  flex-shrink: 0;
+}
+.tk-sidebar-search-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--tk-text);
+  font-family: var(--tk-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  width: 100%;
+}
+.tk-sidebar-search-input::placeholder { color: var(--tk-border-bright); }
+.tk-sidebar-nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+.tk-sidebar-group { margin-bottom: 2px; }
+.tk-sidebar-group-label {
+  display: block;
+  font-family: var(--tk-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tk-border-bright);
+  padding: 10px 14px 4px;
+}
+.tk-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 14px;
+  background: transparent;
+  border: none;
+  border-left: 2px solid transparent;
+  color: var(--tk-text-dim);
+  font-family: var(--tk-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.tk-sidebar-item:hover { color: var(--tk-text); background: var(--tk-surface2); }
+.tk-sidebar-item--active {
+  color: var(--tk-accent);
+  border-left-color: var(--tk-accent);
+  background: var(--tk-surface2);
+}
+.tk-sidebar-empty {
+  font-family: var(--tk-mono);
+  font-size: 0.68rem;
+  color: var(--tk-border-bright);
+  padding: 12px 14px;
+}
+.tk-sidebar-footer {
+  border-top: 1px solid var(--tk-border);
+  padding: 6px 0;
+  flex-shrink: 0;
+}
+.tk-sidebar-settings { color: var(--tk-border-bright); }
+.tk-sidebar-settings:hover { color: var(--tk-text-dim); background: var(--tk-surface2); }
+ 
+/* ── Main content ─────────────────────────────────────────────── */
+ 
+.tk-layout .tk-main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
+ 
+/* ── Local-only notice ────────────────────────────────────────── */
+ 
+.tk-local-notice {
+  padding: 0.6rem 1.4rem;
+  font-size: 0.6rem;
+  letter-spacing: 0.07em;
+  color: var(--tk-border-bright);
+  font-family: var(--tk-mono);
+  border-top: 1px solid var(--tk-border);
+  flex-shrink: 0;
+}
+ 
+/* ── Modal shell (Modal.jsx) ──────────────────────────────────── */
+ 
+.tk-modal-shell {
+  display: flex;
+  flex-direction: column;
+  width: min(var(--modal-width, 520px), 94vw);
+  max-height: 88vh;
+  background: var(--tk-surface2);
+  border: 1px solid var(--tk-border-bright);
+  border-radius: var(--tk-radius);
+  overflow: hidden;               /* children scroll, not the shell */
+  animation: tk-slideUp 0.25s ease;
+}
+.tk-modal-shell-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.1rem 1.4rem 0.9rem;
+  border-bottom: 1px solid var(--tk-border);
+  flex-shrink: 0;
+}
+.tk-modal-shell-title {
+  font-family: var(--tk-display);
+  font-size: 1.2rem;
+  font-weight: 400;
+  color: var(--tk-text);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+.tk-modal-shell-close {
+  background: none;
+  border: none;
+  color: var(--tk-text-dim);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 4px 6px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.tk-modal-shell-close:hover { color: var(--tk-accent2); }
+.tk-modal-shell-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.2rem 1.4rem;
+}
+.tk-modal-shell-footer {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.9rem 1.4rem;
+  border-top: 1px solid var(--tk-border);
+  flex-shrink: 0;
+}
+.tk-modal-shell-footer .tk-modal-close { flex: 1; margin: 0; }
+ 
+/* ── ToolGroupSettings (ToolGroupSettings.jsx) ────────────────── */
+ 
+.tk-sg-desc {
+  font-size: 0.7rem;
+  color: var(--tk-text-dim);
+  letter-spacing: 0.02em;
+  line-height: 1.6;
+  margin: 0 0 1.1rem;
+}
+ 
+/* Add-group row */
+.tk-sg-add-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.1rem;
+}
+.tk-sg-name-input {
+  flex: 1;
+  background: var(--tk-surface);
+  border: 1px solid var(--tk-border-bright);
+  color: var(--tk-text);
+  font-family: var(--tk-mono);
+  font-size: 0.75rem;
+  padding: 0.45rem 0.8rem;
+  border-radius: var(--tk-radius);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.tk-sg-name-input:focus { border-color: var(--tk-accent); }
+.tk-sg-name-input::placeholder { color: var(--tk-border-bright); }
+.tk-sg-reset-btn {
+  background: transparent;
+  border: 1px solid var(--tk-border-bright);
+  color: var(--tk-text-dim);
+  font-family: var(--tk-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  padding: 0.45rem 0.75rem;
+  cursor: pointer;
+  border-radius: var(--tk-radius);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.tk-sg-reset-btn:hover { border-color: var(--tk-accent3); color: var(--tk-accent3); }
+ 
+/* Assignment table */
+.tk-sg-table-wrap {
+  border: 1px solid var(--tk-border);
+  border-radius: var(--tk-radius);
+  overflow: auto;               /* handles many groups gracefully */
+  margin-bottom: 1rem;
+}
+.tk-sg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--tk-mono);
+}
+.tk-sg-th {
+  background: var(--tk-surface);
+  color: var(--tk-text-dim);
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid var(--tk-border);
+  white-space: nowrap;
+  text-align: center;
+}
+.tk-sg-th--tool { text-align: left; min-width: 110px; }
+.tk-sg-th--none { color: var(--tk-accent2); }
+ 
+.tk-sg-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.tk-sg-remove-group {
+  background: none;
+  border: none;
+  color: var(--tk-text-dim);
+  font-size: 0.6rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.tk-sg-remove-group:hover { color: var(--tk-accent2); }
+ 
+.tk-sg-td {
+  padding: 0.42rem 0.7rem;
+  border-bottom: 1px solid var(--tk-border);
+  font-size: 0.72rem;
+  color: var(--tk-text);
+}
+.tk-sg-table tbody tr:last-child .tk-sg-td { border-bottom: none; }
+.tk-sg-table tbody tr:hover .tk-sg-td { background: var(--tk-surface2); }
+.tk-sg-td--label { text-align: left; white-space: nowrap; }
+.tk-sg-td--radio { text-align: center; }
+.tk-sg-td--radio input[type="radio"] {
+  accent-color: var(--tk-accent);
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+}
+.tk-sg-row--warn .tk-sg-td--label { color: var(--tk-accent2); }
+ 
+/* Unassigned warning box */
+.tk-sg-warn-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(255,51,102,0.3);
+  border-radius: var(--tk-radius);
+  background: rgba(255,51,102,0.05);
+}
+.tk-sg-warn-label {
+  font-family: var(--tk-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tk-accent2);
+}
+.tk-sg-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.tk-sg-chip {
+  font-family: var(--tk-mono);
+  font-size: 0.65rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 100px;
+  border: 1px solid var(--tk-border-bright);
+  color: var(--tk-text-dim);
+  background: var(--tk-surface2);
+}
+.tk-sg-chip--warn {
+  border-color: rgba(255,51,102,0.4);
+  color: var(--tk-accent2);
+  background: transparent;
+}

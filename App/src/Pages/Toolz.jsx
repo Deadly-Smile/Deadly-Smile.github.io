@@ -23,47 +23,49 @@ import QRCodeGenerator from "./tools/QRCodeGenerator";
 import CSVTSVConverter from "./tools/CSVTSVConverter";
 import PasswordGenerator from "./tools/PasswordGenerator";
 import Footer from "./components/Footer";
+import ToolGroupSettings, { DEFAULT_GROUPS, DEFAULT_ASSIGNMENTS } from "./components/ToolGroupSettings";
 
 const ALL_TOOLS = [
-  { id:"magic",  label:"ORACLE",     component: Magic8BallTool     },
-  { id:"notes",  label:"NOTES",      component: NotesTool          },
-  { id:"json",   label:"JSON",       component: JsonTool           },
-  { id:"html",   label:"HTML",       component: HtmlPreviewerTool  },
-  { id:"code",   label:"CODE",       component: CodeRunnerTool     },
-  { id:"http",   label:"HTTP",       component: HttpTool           },
-  { id:"pdf",    label:"PDF READER", component: PdfReaderTool      },
-  { id:"regex",  label:"REGEX",      component: RegexTool          },
-  { id:"base64", label:"BASE64",     component: Base64Tool         },
-  { id:"jwt",    label:"JWT",        component: JWTTool            },
-  { id:"hash",   label:"HASH",       component: HashTool           },
-  { id:"color",  label:"COLOR",      component: ColorTool          },
-  { id:"diff",   label:"DIFF",       component: DiffTool           },
-  { id:"word",   label:"WORD COUNT", component: WordTool           },
-  { id:"calc",   label:"CALCULATOR", component: CalculatorTool     },
-  { id:"cron",   label:"CRON",       component: CronExpressionParser },
-  { id:"time",   label:"TIMESTAMP",  component: TimestampConverter },
-  { id:"qr",     label:"QR CODE",    component: QRCodeGenerator    },
-  { id:"csv",    label:"CSV/TSV",    component: CSVTSVConverter    },
-  { id:"pass",   label:"PASSWORD",   component: PasswordGenerator  },
+  { id: "magic",  label: "Oracle",      component: Magic8BallTool     },
+  { id: "notes",  label: "Notes",       component: NotesTool          },
+  { id: "calc",   label: "Calculator",  component: CalculatorTool     },
+  { id: "word",   label: "Word Count",  component: WordTool           },
+  { id: "json",   label: "JSON",        component: JsonTool           },
+  { id: "regex",  label: "Regex",       component: RegexTool          },
+  { id: "base64", label: "Base64",      component: Base64Tool         },
+  { id: "jwt",    label: "JWT",         component: JWTTool            },
+  { id: "hash",   label: "Hash",        component: HashTool           },
+  { id: "http",   label: "HTTP",        component: HttpTool           },
+  { id: "cron",   label: "Cron",        component: CronExpressionParser },
+  { id: "html",   label: "HTML",        component: HtmlPreviewerTool  },
+  { id: "code",   label: "Code Runner", component: CodeRunnerTool     },
+  { id: "color",  label: "Color",       component: ColorTool          },
+  { id: "diff",   label: "Diff",        component: DiffTool           },
+  { id: "time",   label: "Timestamp",   component: TimestampConverter },
+  { id: "qr",     label: "QR Code",     component: QRCodeGenerator    },
+  { id: "csv",    label: "CSV / TSV",   component: CSVTSVConverter    },
+  { id: "pass",   label: "Password",    component: PasswordGenerator  },
+  { id: "pdf",    label: "PDF Reader",  component: PdfReaderTool      },
 ];
 
-const DEFAULT_MAIN_TOOLS = [
-  { id:"word",   label:"WORD COUNT", component: WordTool           },
-  { id:"notes",  label:"NOTES",      component: NotesTool          },
-  { id:"json",   label:"JSON",       component: JsonTool           },
-  { id:"html",   label:"HTML",       component: HtmlPreviewerTool  },
-  { id:"code",   label:"CODE",       component: CodeRunnerTool     },
-  { id:"http",   label:"HTTP",       component: HttpTool           },
-  { id:"qr",     label:"QR CODE",    component: QRCodeGenerator    },
-  { id:"calc",   label:"CALCULATOR", component: CalculatorTool     },
-  { id:"time",   label:"TIMESTAMP",  component: TimestampConverter },
-  { id:"pass",   label:"PASSWORD",   component: PasswordGenerator  },
-];
+// ─── Config persistence ───────────────────────────────────────────────────────
 
-const TOOLS = ALL_TOOLS;
+function loadConfig() {
+  try {
+    const raw = localStorage.getItem("toolz-group-config");
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return { groups: DEFAULT_GROUPS, assignments: DEFAULT_ASSIGNMENTS };
+}
+
+function saveConfig(config) {
+  localStorage.setItem("toolz-group-config", JSON.stringify(config));
+}
+
+// ─── Icons ────────────────────────────────────────────────────────────────────
 
 const WhiteboardIcon = () => (
-  <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor"
        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect x="2" y="3" width="20" height="14" rx="2"/>
     <path d="M8 21h8M12 17v4"/>
@@ -71,131 +73,90 @@ const WhiteboardIcon = () => (
   </svg>
 );
 
-const SettingsIcon = () => (
-  <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+const SearchIcon = () => (
+  <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor"
        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="3"/>
-    <path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m2.98 2.98l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m2.98-2.98l4.24-4.24M19.78 19.78l-4.24-4.24m-2.98-2.98l-4.24-4.24"/>
+    <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
   </svg>
 );
 
-function SettingsModal({ mainToolIds, setMainToolIds, onClose }) {
-  const handleToggle = (toolId) => {
-    setMainToolIds(prev => 
-      prev.includes(toolId)
-        ? prev.filter(id => id !== toolId)
-        : [...prev, toolId]
-    );
-  };
+const SettingsIcon = () => (
+  <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3"/>
+    <path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9 2.83 2.83M1 12h4m14 0h4M4.22 19.78l2.83-2.83m9.9-9.9 2.83-2.83"/>
+  </svg>
+);
 
-  const pinnedTools = ALL_TOOLS.filter(t => mainToolIds.includes(t.id));
-  const unpinnedTools = ALL_TOOLS.filter(t => !mainToolIds.includes(t.id));
+// ─── Sidebar ──────────────────────────────────────────────────────────────────
 
-  const ToolSection = ({ title, tools }) => (
-    <div className="tk-settings-section">
-      <h3>{title}</h3>
-      <div className="tk-settings-list">
-        {tools.map(tool => (
-          <div key={tool.id} className="tk-settings-item">
-            <label>
-              <input
-                type="checkbox"
-                checked={mainToolIds.includes(tool.id)}
-                onChange={() => handleToggle(tool.id)}
-              />
-              <span className="tk-radio-label">{tool.label}</span>
-            </label>
-            <span className="tk-radio-state">
-              {mainToolIds.includes(tool.id) ? "⭐ PINNED" : ""}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-
+function ToolItem({ tool, active, setActive }) {
   return (
-    <div className="tk-modal-overlay" onClick={onClose}>
-      <div className="tk-modal-content" onClick={e => e.stopPropagation()}>
-        <h2>Configure Tools</h2>
-        <p style={{ fontSize: "0.85rem", color: "#666", marginBottom: "1.5rem" }}>
-          Pin tools to the main navigation or move them to the dropdown
-        </p>
-
-        {pinnedTools.length > 0 && <ToolSection title="Pinned" tools={pinnedTools} />}
-        {unpinnedTools.length > 0 && <ToolSection title="Available" tools={unpinnedTools} />}
-
-        <button className="tk-modal-close" onClick={onClose}>Close</button>
-      </div>
-    </div>
+    <button
+      className={`tk-sidebar-item${active === tool.id ? " tk-sidebar-item--active" : ""}`}
+      onClick={() => setActive(tool.id)}
+    >
+      {tool.label}
+    </button>
   );
 }
 
-function ToolNav({ active, setActive, sticky, mainTools, otherTools, onSettingsClick }) {
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+function Sidebar({ active, setActive, config, onSettingsClick }) {
+  const [query, setQuery] = useState("");
+  const { groups, assignments } = config;
+
+  const filtered = query.trim()
+    ? ALL_TOOLS.filter(t => t.label.toLowerCase().includes(query.toLowerCase()))
+    : null;
+
+  const groupedTools = groups
+    .map(g => ({ label: g, tools: ALL_TOOLS.filter(t => assignments[t.id] === g) }))
+    .filter(g => g.tools.length > 0);
 
   return (
-    <nav className="tk-tool-nav" style={sticky ? { top:0, position:"sticky" } : {}}>
-      {mainTools.map(t => (
-        <button
-          key={t.id}
-          className={`tk-nav-btn${active === t.id ? " tk-active" : ""}`}
-          onClick={() => setActive(t.id)}
-        >
-          {t.label}
-        </button>
-      ))}
-      
-      {otherTools.length > 0 && (
-        <div className="tk-dropdown-wrap">
-          <button
-            className="tk-nav-btn"
-            onClick={() => setDropdownOpen(!dropdownOpen)}
-          >
-            <span className="tk-dropdown-toggle">
-              MORE
-              <span className={`tk-dropdown-arrow ${dropdownOpen ? "open" : ""}`}>▼</span>
-            </span>
-          </button>
+    <aside className="tk-sidebar">
+      <div className="tk-sidebar-search">
+        <SearchIcon />
+        <input
+          type="text"
+          placeholder="Search tools…"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          className="tk-sidebar-search-input"
+        />
+      </div>
 
-          {dropdownOpen && (
-            <div className="tk-dropdown-menu">
-              {otherTools.map(t => (
-                <button
-                  key={t.id}
-                  onClick={() => {
-                    setActive(t.id);
-                    setDropdownOpen(false);
-                  }}
-                  className={`tk-dropdown-item ${active === t.id ? "tk-active" : ""}`}
-                >
-                  {t.label}
-                </button>
-              ))}
+      <nav className="tk-sidebar-nav">
+        {filtered ? (
+          filtered.length > 0
+            ? filtered.map(t => <ToolItem key={t.id} tool={t} active={active} setActive={setActive} />)
+            : <p className="tk-sidebar-empty">No tools found</p>
+        ) : (
+          groupedTools.map(group => (
+            <div key={group.label} className="tk-sidebar-group">
+              <span className="tk-sidebar-group-label">{group.label}</span>
+              {group.tools.map(t => <ToolItem key={t.id} tool={t} active={active} setActive={setActive} />)}
             </div>
-          )}
-        </div>
-      )}
+          ))
+        )}
+      </nav>
 
-      <button
-        className="tk-nav-btn tk-settings-btn"
-        onClick={onSettingsClick}
-        title="Configure tools"
-      >
-        <SettingsIcon />
-      </button>
-    </nav>
+      <div className="tk-sidebar-footer">
+        <button className="tk-sidebar-item tk-sidebar-settings" onClick={onSettingsClick}>
+          <SettingsIcon /> Settings
+        </button>
+      </div>
+    </aside>
   );
 }
+
+// ─── Toolz ────────────────────────────────────────────────────────────────────
 
 const Toolz = ({ embedded = false }) => {
-  const [active, setActive] = useState("word");
-  const [clock,  setClock]  = useState("");
+  const [active,       setActive]       = useState("word");
+  const [clock,        setClock]        = useState("");
   const [showSettings, setShowSettings] = useState(false);
-  const [mainToolIds, setMainToolIds] = useState(() => {
-    const saved = localStorage.getItem("toolz-main-tools");
-    return saved ? JSON.parse(saved) : DEFAULT_MAIN_TOOLS.map(t => t.id);
-  });
+  const [config,       setConfig]       = useState(loadConfig);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -205,41 +166,58 @@ const Toolz = ({ embedded = false }) => {
     return () => clearInterval(id);
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem("toolz-main-tools", JSON.stringify(mainToolIds));
-  }, [mainToolIds]);
+  function handleSaveConfig(newConfig) {
+    setConfig(newConfig);
+    saveConfig(newConfig);
+    // Reset active tool if it was removed from all groups
+    if (!newConfig.assignments[active] || !newConfig.groups.includes(newConfig.assignments[active])) {
+      const first = ALL_TOOLS.find(t => newConfig.assignments[t.id]);
+      if (first) setActive(first.id);
+    }
+  }
 
-  const mainTools = ALL_TOOLS.filter(t => mainToolIds.includes(t.id));
-  const otherTools = ALL_TOOLS.filter(t => !mainToolIds.includes(t.id));
+  const ActiveTool = ALL_TOOLS.find(t => t.id === active)?.component;
 
-  const ActiveTool = TOOLS.find(t => t.id === active)?.component;
+  // Strip components from tool list — ToolGroupSettings doesn't need them
+  const toolMeta = ALL_TOOLS.map(({ id, label }) => ({ id, label }));
+
+  const sidebar = (
+    <Sidebar
+      active={active}
+      setActive={setActive}
+      config={config}
+      onSettingsClick={() => setShowSettings(true)}
+    />
+  );
+
+  const toolArea = (
+    <main className="tk-main">
+      <div className="tk-tool-section">
+        {ActiveTool && <ActiveTool />}
+      </div>
+    </main>
+  );
+
+  const settingsModal = showSettings && (
+    <ToolGroupSettings
+      allTools={toolMeta}
+      config={config}
+      onSave={handleSaveConfig}
+      onClose={() => setShowSettings(false)}
+    />
+  );
 
   if (embedded) {
     return (
-      <div className="tk-root" style={{ minHeight:"unset", height:"100%" }}>
-        <ToolNav 
-          active={active} 
-          setActive={setActive} 
-          sticky 
-          mainTools={mainTools}
-          otherTools={otherTools}
-          onSettingsClick={() => setShowSettings(true)}
-        />
-        <main className="tk-main">
-          <div className="tk-tool-section">
-            {ActiveTool && <ActiveTool />}
-          </div>
-        </main>
-        <div style={{ padding:"0.8rem 2rem 1rem", fontSize:"0.6rem", letterSpacing:"0.07em", color:"#3a3a3a", fontFamily:"'Space Mono',monospace", borderTop:"1px solid #1e1e1e" }}>
+      <div className="tk-root tk-root--embedded">
+        <div className="tk-layout">
+          {sidebar}
+          {toolArea}
+        </div>
+        <div className="tk-local-notice">
           all processing is local — no data leaves your browser
         </div>
-        {showSettings && (
-          <SettingsModal 
-            mainToolIds={mainToolIds} 
-            setMainToolIds={setMainToolIds}
-            onClose={() => setShowSettings(false)}
-          />
-        )}
+        {settingsModal}
       </div>
     );
   }
@@ -251,49 +229,25 @@ const Toolz = ({ embedded = false }) => {
         <div className="tk-noise" />
 
         <header className="tk-header">
-          <Link 
-            to="/" 
-            className="tk-logo"
-            title="Go to Home"
-            style={{ textDecoration: "none", cursor: "pointer", color: "inherit" }}
-          >
+          <Link to="/" className="tk-logo" title="Go to Home"
+                style={{ textDecoration: "none", cursor: "pointer", color: "inherit" }}>
             ANIK<span> SAHA</span>
           </Link>
-          <button
-            onClick={() => navigate("/white-board")}
-            title="Go to Whiteboard"
-            className="tk-whiteboard-btn"
-          >
-            <WhiteboardIcon />
-            WHITEBOARD
+          <button onClick={() => navigate("/white-board")} title="Go to Whiteboard"
+                  className="tk-whiteboard-btn">
+            <WhiteboardIcon /> WHITEBOARD
           </button>
-
           <div className="tk-clock">{clock}</div>
         </header>
 
-        <ToolNav 
-          active={active} 
-          setActive={setActive} 
-          mainTools={mainTools}
-          otherTools={otherTools}
-          onSettingsClick={() => setShowSettings(true)}
-        />
+        <div className="tk-layout">
+          {sidebar}
+          {toolArea}
+        </div>
 
-        <main className="tk-main">
-          <div className="tk-tool-section">
-            {ActiveTool && <ActiveTool />}
-          </div>
-        </main>
-
-        {showSettings && (
-          <SettingsModal 
-            mainToolIds={mainToolIds} 
-            setMainToolIds={setMainToolIds}
-            onClose={() => setShowSettings(false)}
-          />
-        )}
+        {settingsModal}
       </div>
-      <Footer/>
+      <Footer />
     </>
   );
 };
