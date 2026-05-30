@@ -1649,3 +1649,367 @@
   color: var(--tk-accent2);
   background: transparent;
 }
+
+.ie-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  font-family: var(--tk-mono);
+  color: var(--tk-text);
+}
+ 
+/* ── Top bar ──────────────────────────────────────────────────── */
+ 
+.ie-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--tk-border);
+  background: var(--tk-surface);
+  flex-shrink: 0;
+}
+ 
+.ie-topbar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+ 
+.ie-topbar-info {
+  flex: 1;
+  text-align: center;
+}
+ 
+.ie-dim {
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  color: var(--tk-text-dim);
+}
+ 
+/* ── Buttons ──────────────────────────────────────────────────── */
+ 
+.ie-btn {
+  background: var(--tk-surface2);
+  border: 1px solid var(--tk-border-bright);
+  color: var(--tk-text-dim);
+  font-family: var(--tk-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+  border-radius: var(--tk-radius);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.ie-btn:hover:not(:disabled) {
+  color: var(--tk-text);
+  border-color: var(--tk-text-dim);
+  background: var(--tk-surface);
+}
+.ie-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+ 
+.ie-btn--accent {
+  background: var(--tk-accent);
+  color: var(--tk-bg);
+  border-color: var(--tk-accent);
+}
+.ie-btn--accent:hover:not(:disabled) {
+  background: #00dd7f;
+  border-color: #00dd7f;
+  color: var(--tk-bg);
+}
+ 
+.ie-btn--ghost {
+  background: transparent;
+  border-color: var(--tk-border);
+  color: var(--tk-text-dim);
+}
+.ie-btn--ghost:hover:not(:disabled) {
+  border-color: var(--tk-border-bright);
+  color: var(--tk-text);
+}
+ 
+.ie-btn--full { width: 100%; justify-content: center; }
+ 
+/* ── Drop zone ────────────────────────────────────────────────── */
+ 
+.ie-dropzone {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  border: 2px dashed var(--tk-border-bright);
+  border-radius: var(--tk-radius);
+  margin: 1.5rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.ie-dropzone:hover {
+  border-color: var(--tk-accent);
+  background: rgba(0,255,136,0.03);
+}
+.ie-drop-icon {
+  font-size: 2.5rem;
+  color: var(--tk-border-bright);
+  line-height: 1;
+  transition: color 0.2s;
+}
+.ie-dropzone:hover .ie-drop-icon { color: var(--tk-accent); }
+.ie-drop-text {
+  font-size: 0.85rem;
+  color: var(--tk-text-dim);
+  letter-spacing: 0.05em;
+}
+.ie-drop-sub {
+  font-size: 0.62rem;
+  color: var(--tk-border-bright);
+  letter-spacing: 0.1em;
+}
+ 
+/* ── Workspace layout ─────────────────────────────────────────── */
+ 
+.ie-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+ 
+/* ── Side panel ───────────────────────────────────────────────── */
+ 
+.ie-panel {
+  width: 220px;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--tk-border);
+  background: var(--tk-surface);
+  overflow: hidden;
+}
+ 
+.ie-panel-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--tk-border);
+  flex-shrink: 0;
+}
+ 
+.ie-tab {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--tk-text-dim);
+  font-family: var(--tk-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  padding: 0.55rem 0.3rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-transform: uppercase;
+}
+.ie-tab:hover { color: var(--tk-text); background: var(--tk-surface2); }
+.ie-tab--active {
+  color: var(--tk-accent);
+  border-bottom-color: var(--tk-accent);
+  background: var(--tk-surface2);
+}
+ 
+.ie-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+}
+ 
+/* ── Panel sections ───────────────────────────────────────────── */
+ 
+.ie-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+ 
+.ie-section-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tk-text-dim);
+  margin: 0;
+}
+ 
+.ie-note {
+  font-size: 0.63rem;
+  color: var(--tk-text-dim);
+  line-height: 1.5;
+  margin: 0;
+}
+ 
+/* ── Sliders ──────────────────────────────────────────────────── */
+ 
+.ie-slider-row { display: flex; flex-direction: column; gap: 3px; }
+ 
+.ie-slider-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+ 
+.ie-slider-label { font-size: 0.65rem; color: var(--tk-text-dim); letter-spacing: 0.04em; }
+.ie-slider-val   { font-size: 0.65rem; color: var(--tk-accent);   font-variant-numeric: tabular-nums; }
+ 
+.ie-range {
+  width: 100%;
+  accent-color: var(--tk-accent);
+  cursor: pointer;
+  height: 2px;
+  background: var(--tk-border-bright);
+  border-radius: 1px;
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+}
+.ie-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--tk-accent);
+  cursor: pointer;
+  border: 2px solid var(--tk-bg);
+}
+.ie-range::-moz-range-thumb {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--tk-accent);
+  cursor: pointer;
+  border: 2px solid var(--tk-bg);
+}
+ 
+/* ── Filter buttons ───────────────────────────────────────────── */
+ 
+.ie-filter-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+ 
+.ie-filter-btn {
+  background: var(--tk-surface2);
+  border: 1px solid var(--tk-border);
+  color: var(--tk-text-dim);
+  font-family: var(--tk-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  padding: 0.55rem 0.4rem;
+  cursor: pointer;
+  border-radius: var(--tk-radius);
+  transition: all 0.15s;
+  text-align: center;
+}
+.ie-filter-btn:hover { border-color: var(--tk-border-bright); color: var(--tk-text); }
+.ie-filter-btn--active {
+  border-color: var(--tk-accent);
+  color: var(--tk-accent);
+  background: rgba(0,255,136,0.07);
+}
+ 
+/* ── Button row ───────────────────────────────────────────────── */
+ 
+.ie-btn-row {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+ 
+/* ── Form fields ──────────────────────────────────────────────── */
+ 
+.ie-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+ 
+.ie-field-row {
+  display: flex;
+  gap: 0.5rem;
+}
+ 
+.ie-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tk-text-dim);
+}
+ 
+.ie-input {
+  background: var(--tk-surface2);
+  border: 1px solid var(--tk-border-bright);
+  color: var(--tk-text);
+  font-family: var(--tk-mono);
+  font-size: 0.75rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--tk-radius);
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+.ie-input:focus { border-color: var(--tk-accent); }
+ 
+.ie-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.68rem;
+  color: var(--tk-text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.ie-checkbox input { accent-color: var(--tk-accent); cursor: pointer; }
+ 
+/* ── Canvas / preview ─────────────────────────────────────────── */
+ 
+.ie-canvas-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  background: var(--tk-bg);
+  padding: 1.5rem;
+}
+ 
+.ie-preview-shell {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-start;
+  line-height: 0;
+  border: 1px solid var(--tk-border);
+  border-radius: var(--tk-radius);
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+}
+ 
+.ie-preview-shell--crop { cursor: crosshair; }
+ 
+.ie-preview-img {
+  max-width: min(100%, 900px);
+  max-height: calc(100vh - 140px);
+  display: block;
+  user-select: none;
+}
+ 
+/* Crop selection overlay */
+.ie-crop-sel {
+  position: absolute;
+  border: 2px solid var(--tk-accent);
+  background: rgba(0,255,136,0.12);
+  box-shadow: 0 0 0 9999px rgba(0,0,0,0.45);
+  pointer-events: none;
+}

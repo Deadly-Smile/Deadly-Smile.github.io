@@ -7,6 +7,7 @@ const DEFAULT_ASSIGNMENTS = {
   notes:  "General",
   calc:   "General",
   word:   "General",
+  image:  "General",
   json:   "Dev",
   regex:  "Dev",
   base64: "Dev",

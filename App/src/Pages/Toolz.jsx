@@ -22,6 +22,7 @@ import TimestampConverter from "./tools/TimestampConverter";
 import QRCodeGenerator from "./tools/QRCodeGenerator";
 import CSVTSVConverter from "./tools/CSVTSVConverter";
 import PasswordGenerator from "./tools/PasswordGenerator";
+import ImageEditorTool from "./tools/ImageEditor";
 import Footer from "./components/Footer";
 import ToolGroupSettings, { DEFAULT_GROUPS, DEFAULT_ASSIGNMENTS } from "./components/ToolGroupSettings";
 
@@ -46,6 +47,7 @@ const ALL_TOOLS = [
   { id: "csv",    label: "CSV / TSV",   component: CSVTSVConverter    },
   { id: "pass",   label: "Password",    component: PasswordGenerator  },
   { id: "pdf",    label: "PDF Reader",  component: PdfReaderTool      },
+  { id: "image",  label: "Image Editor", component: ImageEditorTool   },
 ];
 
 // ─── Config persistence ───────────────────────────────────────────────────────
