@@ -24,6 +24,7 @@ const DEFAULT_ASSIGNMENTS = {
   csv:    "Utilities",
   pass:   "Utilities",
   pdf:    "Utilities",
+  tester: "Utilities",
 };
 
 export { DEFAULT_GROUPS, DEFAULT_ASSIGNMENTS };
