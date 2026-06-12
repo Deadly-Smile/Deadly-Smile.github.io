@@ -23,8 +23,9 @@ const DEFAULT_ASSIGNMENTS = {
   qr:     "Utilities",
   csv:    "Utilities",
   pass:   "Utilities",
-  pdf:    "Utilities",
+  text_extractor:    "Utilities",
   tester: "Utilities",
+  chat:  "Utilities"
 };
 
 export { DEFAULT_GROUPS, DEFAULT_ASSIGNMENTS };

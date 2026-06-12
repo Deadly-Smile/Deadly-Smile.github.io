@@ -16,7 +16,8 @@ import NotesTool       from "./tools/NotesTool";
 import Magic8BallTool  from "./tools/Magic8BallTool";
 import CalculatorTool  from "./tools/CalculatorTool";
 import JWTTool         from "./tools/JWTTool";
-import PdfReaderTool   from "./tools/PdfReaderTool";
+import TextExtractor   from "./tools/TextExtractor";
+import P2PChat         from "./tools/Chat";
 import CronExpressionParser from "./tools/CronExpressionParser";
 import TimestampConverter from "./tools/TimestampConverter";
 import QRCodeGenerator from "./tools/QRCodeGenerator";
@@ -47,7 +48,8 @@ const ALL_TOOLS = [
   { id: "qr",     label: "QR Code",     component: QRCodeGenerator    },
   { id: "csv",    label: "CSV / TSV",   component: CSVTSVConverter    },
   { id: "pass",   label: "Password",    component: PasswordGenerator  },
-  { id: "pdf",    label: "PDF Reader",  component: PdfReaderTool      },
+  { id: "text_extractor",    label: "Text Extractor",  component: TextExtractor },
+  { id: "chat",   label: "P2P Chat",    component: P2PChat            },
   { id: "image",  label: "Image Editor", component: ImageEditorTool   },
   { id: "input_checker", label: "Tester", component: InputDeviceChecker }
 ];
