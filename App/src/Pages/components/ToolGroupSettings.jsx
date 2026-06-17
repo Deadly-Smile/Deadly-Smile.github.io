@@ -8,6 +8,7 @@ const DEFAULT_ASSIGNMENTS = {
   calc:   "General",
   word:   "General",
   image:  "General",
+  csv_editor: "General",
   json:   "Dev",
   regex:  "Dev",
   base64: "Dev",

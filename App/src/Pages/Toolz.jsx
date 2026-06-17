@@ -24,6 +24,7 @@ import QRCodeGenerator from "./tools/QRCodeGenerator";
 import CSVTSVConverter from "./tools/CSVTSVConverter";
 import PasswordGenerator from "./tools/PasswordGenerator";
 import ImageEditorTool from "./tools/ImageEditor";
+import CSVEditor       from "./tools/CSVEditor/CSVEditor";
 import Footer from "./components/Footer";
 import InputDeviceChecker from "./tools/InputDeviceChecker";
 import ToolGroupSettings, { DEFAULT_GROUPS, DEFAULT_ASSIGNMENTS } from "./components/ToolGroupSettings";
@@ -51,7 +52,8 @@ const ALL_TOOLS = [
   { id: "text_extractor",    label: "Text Extractor",  component: TextExtractor },
   { id: "chat",   label: "P2P Chat",    component: P2PChat            },
   { id: "image",  label: "Image Editor", component: ImageEditorTool   },
-  { id: "input_checker", label: "Tester", component: InputDeviceChecker }
+  { id: "input_checker", label: "Tester", component: InputDeviceChecker },
+  { id: "csv_editor", label: "CSV Editor", component: CSVEditor }
 ];
 
 // ─── Config persistence ───────────────────────────────────────────────────────

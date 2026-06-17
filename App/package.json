@@ -30,7 +30,10 @@
     "react-image-gallery": "^1.4.0",
     "react-konva": "^18.2.10",
     "react-router-dom": "^6.17.0",
-    "tesseract.js": "^7.0.0"
+    "tesseract.js": "^7.0.0",
+    "hot-formula-parser": "^4.0.0",
+    "papaparse": "^5.4.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/react": "^18.2.15",
