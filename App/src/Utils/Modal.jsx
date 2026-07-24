@@ -1,146 +1,74 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 
 /**
- * Reusable Modal component for confirmations, inputs, and alerts
+ * Reusable Modal component for confirmations, inputs, and alerts.
+ * `actions` accepts either an array of action descriptors
+ * ({label, onClick, primary, danger, closeOnClick}) or a plain ReactNode
+ * rendered as-is in the footer.
  */
-export function Modal({ isOpen, title, children, onClose, actions = [] }) {
+export function Modal({ isOpen = true, title, children, onClose, actions = [], width = "500px" }) {
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
+
+  const actionButtons = Array.isArray(actions) ? actions : null;
 
   return (
     <div
       onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0, 0, 0, 0.7)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 10000,
-        animation: "tk-modal-fade-in 0.2s ease-out"
-      }}
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-[10000] animate-modal-fade-in"
     >
       <div
         onClick={e => e.stopPropagation()}
-        style={{
-          background: "var(--tk-surface)",
-          border: "1px solid var(--tk-border-bright)",
-          borderRadius: "var(--tk-radius)",
-          padding: "1.5rem",
-          maxWidth: "500px",
-          width: "90%",
-          maxHeight: "80vh",
-          overflowY: "auto",
-          boxShadow: "0 20px 60px rgba(0, 0, 0, 0.5)",
-          animation: "tk-modal-scale-in 0.2s ease-out"
-        }}
+        style={{ maxWidth: width }}
+        className="bg-tk-surface border border-tk-border-bright rounded-tk p-6 w-[90%] max-h-[80vh] overflow-y-auto shadow-2xl animate-modal-scale-in font-tk-mono"
       >
         {/* Header */}
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: "1rem",
-          paddingBottom: "1rem",
-          borderBottom: "1px solid var(--tk-border)"
-        }}>
-          <h3 style={{
-            margin: 0,
-            fontSize: "1rem",
-            letterSpacing: "0.1em",
-            color: "var(--tk-text)",
-            fontFamily: "var(--tk-mono)",
-            fontWeight: 600
-          }}>
+        <div className="flex items-center justify-between mb-4 pb-4 border-b border-tk-border">
+          <h3 className="m-0 text-base tracking-[0.1em] text-tk-text font-semibold">
             {title}
           </h3>
           <button
             onClick={onClose}
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--tk-text-dim)",
-              cursor: "pointer",
-              fontSize: "1.2em",
-              padding: 0,
-              transition: "color 0.2s"
-            }}
-            onMouseEnter={e => e.target.style.color = "var(--tk-text)"}
-            onMouseLeave={e => e.target.style.color = "var(--tk-text-dim)"}
+            className="bg-transparent border-none text-tk-text-dim hover:text-tk-text cursor-pointer text-xl p-0 transition-colors"
           >
             ✕
           </button>
         </div>
 
         {/* Content */}
-        <div style={{
-          marginBottom: "1.5rem",
-          color: "var(--tk-text-dim)",
-          fontSize: "0.85rem",
-          lineHeight: 1.6
-        }}>
+        <div className="mb-6 text-tk-text-dim text-sm leading-relaxed">
           {children}
         </div>
 
         {/* Actions */}
-        {actions.length > 0 && (
-          <div style={{
-            display: "flex",
-            gap: "0.8rem",
-            justifyContent: "flex-end",
-            flexWrap: "wrap"
-          }}>
-            {actions.map((action, idx) => (
-              <button
-                key={idx}
-                onClick={() => {
-                  action.onClick?.();
-                  if (action.closeOnClick !== false) onClose();
-                }}
-                style={{
-                  background: action.primary ? "var(--tk-accent)" : "var(--tk-surface2)",
-                  color: action.primary ? "var(--tk-bg)" : "var(--tk-text)",
-                  border: action.danger ? "1px solid var(--tk-accent2)" : "1px solid var(--tk-border-bright)",
-                  borderRadius: "var(--tk-radius)",
-                  padding: "0.6rem 1.2rem",
-                  cursor: "pointer",
-                  fontFamily: "var(--tk-mono)",
-                  fontSize: "0.7rem",
-                  letterSpacing: "0.08em",
-                  transition: "all 0.2s",
-                  fontWeight: 600
-                }}
-                onMouseEnter={e => {
-                  e.target.style.opacity = "0.8";
-                  e.target.style.transform = "scale(1.02)";
-                }}
-                onMouseLeave={e => {
-                  e.target.style.opacity = "1";
-                  e.target.style.transform = "scale(1)";
-                }}
-              >
-                {action.label}
-              </button>
-            ))}
-          </div>
+        {actionButtons ? (
+          actionButtons.length > 0 && (
+            <div className="flex gap-3 justify-end flex-wrap">
+              {actionButtons.map((action, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => {
+                    action.onClick?.();
+                    if (action.closeOnClick !== false) onClose();
+                  }}
+                  className={`rounded-tk px-5 py-2.5 cursor-pointer font-tk-mono text-xs tracking-[0.08em] font-semibold transition-all hover:opacity-80 hover:scale-[1.02] ${
+                    action.primary ? "bg-tk-accent text-tk-bg" : "bg-tk-surface2 text-tk-text"
+                  } ${action.danger ? "border border-tk-accent2" : "border border-tk-border-bright"}`}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          )
+        ) : (
+          <div className="flex gap-3 justify-end flex-wrap">{actions}</div>
         )}
-
-        <style>{`
-          @keyframes tk-modal-fade-in {
-            from { opacity: 0; }
-            to { opacity: 1; }
-          }
-          @keyframes tk-modal-scale-in {
-            from {
-              opacity: 0;
-              transform: scale(0.95);
-            }
-            to {
-              opacity: 1;
-              transform: scale(1);
-            }
-          }
-        `}</style>
       </div>
     </div>
   );
@@ -212,20 +140,7 @@ export function InputModal({ isOpen, title, placeholder, defaultValue = "", onCl
         onChange={e => setValue(e.target.value)}
         onKeyPress={handleKeyPress}
         autoFocus
-        style={{
-          width: "100%",
-          padding: "0.8rem",
-          background: "var(--tk-surface2)",
-          border: "1px solid var(--tk-border-bright)",
-          borderRadius: "var(--tk-radius)",
-          color: "var(--tk-text)",
-          fontFamily: "var(--tk-mono)",
-          fontSize: "0.85rem",
-          boxSizing: "border-box",
-          transition: "border-color 0.2s"
-        }}
-        onFocus={e => e.target.style.borderColor = "var(--tk-accent)"}
-        onBlur={e => e.target.style.borderColor = "var(--tk-border-bright)"}
+        className="w-full p-3 bg-tk-surface2 border border-tk-border-bright rounded-tk text-tk-text font-tk-mono text-sm box-border transition-colors focus:border-tk-accent focus:outline-none"
       />
     </Modal>
   );
@@ -257,3 +172,5 @@ export function ConfirmModal({ isOpen, title, message, onClose, onConfirm, dange
     </Modal>
   );
 }
+
+export default Modal;

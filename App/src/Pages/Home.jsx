@@ -25,24 +25,11 @@ import { IoGameController } from "react-icons/io5";
 import { FaJava } from "react-icons/fa";
 import { BiLogoReact } from "react-icons/bi";
 import { Link } from "react-router-dom";
-import { useEffect, useState } from "react";
 import Footer from "./components/Footer";
 
 const Home = () => {
-  localStorage.setItem("theme", "dark");
-  const [theme] = useState(localStorage.getItem("theme") || "dark");
-  const toggleMode = () => {
-    const newTheme = "dark";
-    document.documentElement.setAttribute("data-theme", newTheme);
-    localStorage.setItem("theme", newTheme);
-  };
-  useEffect(() => {
-    toggleMode();
-  }, []);
-  toggleMode();
   return (
     <div className="relative">
-      {/* <ToggleMode /> */}
       <div className="bg-black opacity-10 h-40 rounded-b-full"></div>
       <div>
         <div className="bg-black opacity-10">

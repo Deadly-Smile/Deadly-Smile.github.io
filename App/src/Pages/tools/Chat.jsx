@@ -141,13 +141,21 @@ function TypingIndicator() {
   );
 }
 
-function CopyButton({ text }) {
+function CopyButton({ text, label = "Copy ID" }) {
   const [copied, setCopied] = useState(false);
   const copy = () => navigator.clipboard.writeText(text).then(() => {
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   });
-  return <button onClick={copy} style={s.btnOutline}>{copied ? "✓ Copied" : "Copy ID"}</button>;
+  return <button onClick={copy} style={s.btnOutline}>{copied ? "✓ Copied" : label}</button>;
+}
+
+function buildShareLink(roomId) {
+  return `${window.location.origin}/toolz?tool=chat&room=${roomId}`;
+}
+
+function buildQrUrl(data, size = 200) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(data)}`;
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -212,8 +220,8 @@ export default function P2PChat() {
     peer.on("error", (e) => setStatusMsg("Error: " + e.message));
   };
 
-  const joinRoom = async () => {
-    const roomId = joinInput.trim().toUpperCase();
+  const joinRoom = async (roomIdOverride) => {
+    const roomId = (roomIdOverride ?? joinInput).trim().toUpperCase();
     if (!roomId) return;
     const iceServers = await getIceServers();
     const peer = new Peer(undefined, { config: { iceServers } });
@@ -226,6 +234,21 @@ export default function P2PChat() {
     });
     peer.on("error", (e) => setStatusMsg("Error: " + e.message));
   };
+
+  // Auto-join when opened via a shared link (?tool=chat&room=XXXXXX) — the
+  // whole point is that the recipient shouldn't have to type anything.
+  const autoJoinedRef = useRef(false);
+  useEffect(() => {
+    if (autoJoinedRef.current) return;
+    autoJoinedRef.current = true;
+    const room = new URLSearchParams(window.location.search).get("room");
+    if (room) {
+      setShowJoin(true);
+      setJoinInput(room.toUpperCase());
+      joinRoom(room);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const sendMsg = () => {
     const text = msgInput.trim();
@@ -298,23 +321,38 @@ export default function P2PChat() {
     </div>
   );
 
-  if (view === "waiting") return (
-    <div style={s.page}>
-      <style>{anim}</style>
-      <div style={s.card}>
-        <h2 style={s.title}>Room ready</h2>
-        <p style={s.muted}>Share this ID with the person you want to chat with.</p>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", background: "#f0f9ff", border: "0.5px solid #bae6fd", borderRadius: 10, padding: "12px 16px", margin: "16px 0" }}>
-          <code style={{ flex: 1, fontSize: 22, fontFamily: "monospace", letterSpacing: "0.15em", color: "#0369a1" }}>{myId}</code>
-          <CopyButton text={myId} />
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#6b7280", fontSize: 13 }}>
-          <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#fbbf24", animation: "bounce 1.2s ease-in-out infinite" }} />
-          Waiting for someone to join…
+  if (view === "waiting") {
+    const shareLink = buildShareLink(myId);
+    return (
+      <div style={s.page}>
+        <style>{anim}</style>
+        <div style={s.card}>
+          <h2 style={s.title}>Room ready</h2>
+          <p style={s.muted}>Share the link or QR code below — whoever opens it connects instantly, no typing needed.</p>
+
+          <div style={{ display: "flex", gap: 10, alignItems: "center", background: "#f0f9ff", border: "0.5px solid #bae6fd", borderRadius: 10, padding: "12px 16px", margin: "16px 0 10px" }}>
+            <code style={{ flex: 1, fontSize: 22, fontFamily: "monospace", letterSpacing: "0.15em", color: "#0369a1" }}>{myId}</code>
+            <CopyButton text={myId} label="Copy ID" />
+          </div>
+
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 20 }}>
+            <code style={{ flex: 1, fontSize: 12, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shareLink}</code>
+            <CopyButton text={shareLink} label="Copy Link" />
+          </div>
+
+          <div style={{ textAlign: "center", padding: 16, background: "#fff", border: "0.5px solid #e5e7eb", borderRadius: 10, marginBottom: 20 }}>
+            <img src={buildQrUrl(shareLink)} alt="Scan to join this room" width={180} height={180} style={{ display: "block", margin: "0 auto" }} />
+            <p style={{ fontSize: 12, color: "#6b7280", marginTop: 10 }}>📷 Scan with a phone camera to join</p>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#6b7280", fontSize: 13 }}>
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#fbbf24", animation: "bounce 1.2s ease-in-out infinite" }} />
+            Waiting for someone to join…
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  }
 
   return (
     <div style={s.chatContainer}>

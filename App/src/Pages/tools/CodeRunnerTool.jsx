@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { EditorView, basicSetup } from "codemirror";
-import { EditorState } from "@codemirror/state";
+import { EditorState, Compartment } from "@codemirror/state";
 import { javascript } from "@codemirror/lang-javascript";
 import { cpp } from "@codemirror/lang-cpp";
 import { oneDark } from "@codemirror/theme-one-dark";
@@ -10,39 +10,15 @@ import SNIPPETS from "../../Helper/snippets";
 import { Modal, InputModal, useModal, ConfirmModal } from "../../Utils/Modal";
 import { Toast, showToast } from "../../Utils/Toast";
 import { createFileId } from "../../Helper/generator";
-import { getAllTabs, saveAllTabs, getActiveTabId, setActiveTabId, saveFile, fileExists, getSavedFiles, deleteFile } from "../../Helper/storageUtils";
+import { getAllTabs, saveAllTabs, getActiveTabId, setActiveTabId, saveFile, fileExists, getSavedFiles, deleteFile, renameFile } from "../../Helper/storageUtils";
+import { runScript } from "../../Helper/sandboxedRunner";
 
 const STORAGE_KEY_PREFIX = "coderunner_";
 
 const LANGUAGES = {
   javascript: {
     label:"JavaScript", abbr:"JS",
-    run: async (code, pushLine) => new Promise(resolve => {
-      const iframe = document.createElement("iframe");
-      iframe.style.display = "none";
-      document.body.appendChild(iframe);
-      const timeout = setTimeout(()=>{ resolve({error:"⏱ Timed out after 5s"}); try{document.body.removeChild(iframe);}catch{} }, 5000);
-      ["log","error","warn","info","debug"].forEach(m=>{
-        iframe.contentWindow.console[m]=(...args)=>{
-          const text=args.map(a=>{try{return typeof a==="object"?JSON.stringify(a,null,2):String(a);}catch{return String(a);}}).join(" ");
-          pushLine({type:m,text});
-        };
-      });
-      iframe.contentWindow.onerror=(msg,_,line,col)=>{pushLine({type:"error",text:`Uncaught: ${msg} (line ${line}:${col})`});return true;};
-      iframe.contentWindow.onunhandledrejection=e=>pushLine({type:"error",text:`Unhandled: ${e.reason}`});
-      try {
-        const fn=iframe.contentWindow.Function("return (async()=>{\n"+code+"\n})()");
-        const r=fn();
-        if(r&&typeof r.then==="function"){
-          r.then(v=>{if(v!==undefined)pushLine({type:"return",text:String(v)});resolve({});})
-           .catch(e=>{pushLine({type:"error",text:String(e)});resolve({});})
-           .finally(()=>{clearTimeout(timeout);try{document.body.removeChild(iframe);}catch{}});
-        } else {
-          clearTimeout(timeout);if(r!==undefined)pushLine({type:"return",text:String(r)});
-          resolve({});try{document.body.removeChild(iframe);}catch{}
-        }
-      } catch(e){clearTimeout(timeout);resolve({error:String(e)});try{document.body.removeChild(iframe);}catch{}}
-    }),
+    run: (code, pushLine) => runScript(code, pushLine),
   },
   cpp: {
     label:"C++", abbr:"C++",
@@ -86,9 +62,12 @@ export default function CodeRunnerTool() {
 
   const [activeTabId, setActiveTabIdState] = useState(() => {
     const saved = getActiveTabId();
-    const allTabs = getAllTabs();
-    if (saved && allTabs.find(t => t.id === saved)) return saved;
-    return allTabs[0]?.id;
+    // Reuse the already-resolved `tabs` value above rather than re-reading
+    // localStorage — on a brand-new session (nothing persisted yet) a second
+    // independent read would see the same empty storage and fall back to
+    // `undefined`, leaving `activeTabId` pointing at no tab at all.
+    if (saved && tabs.find(t => t.id === saved)) return saved;
+    return tabs[0]?.id;
   });
 
   const [lines, setLines] = useState([]);
@@ -114,6 +93,9 @@ export default function CodeRunnerTool() {
   const editorRef = useRef(null);
   const editorViewRef = useRef(null);
   const activeTabIdRef = useRef(activeTabId);
+  const tabsRef = useRef(tabs);
+  const wrapCompartmentRef = useRef(null);
+  if (!wrapCompartmentRef.current) wrapCompartmentRef.current = new Compartment();
 
   const currentTab = tabs.find(t => t.id === activeTabId);
   const code = currentTab?.code || "";
@@ -125,13 +107,29 @@ export default function CodeRunnerTool() {
   }, [activeTabId]);
 
   useEffect(() => {
-    if (tabs.length > 0) saveAllTabs(tabs);
+    tabsRef.current = tabs;
   }, [tabs]);
+
+  // Debounced so a fast typist isn't hitting localStorage on every keystroke;
+  // still flushed immediately on unmount so nothing in-flight gets lost.
+  useEffect(() => {
+    if (tabs.length === 0) return;
+    const id = setTimeout(() => saveAllTabs(tabs), 400);
+    return () => clearTimeout(id);
+  }, [tabs]);
+
+  useEffect(() => {
+    return () => { saveAllTabs(tabsRef.current); };
+  }, []);
 
   useEffect(() => {
     if (activeTabId) setActiveTabId(activeTabId);
   }, [activeTabId]);
 
+  // Only tears down/rebuilds the CodeMirror instance when the *language*
+  // changes (rare — switching between a JS tab and a C++ tab). Switching
+  // between same-language tabs is handled by the doc-sync effect below,
+  // so undo history and scroll position survive normal tab switching.
   useEffect(() => {
     if (!editorRef.current || !currentTab) return;
 
@@ -139,7 +137,21 @@ export default function CodeRunnerTool() {
     const language = currentLanguage === "cpp" ? cpp() : javascript();
     const state = EditorState.create({
       doc: currentTab.code,
-      extensions: [basicSetup, language, oneDark],
+      extensions: [
+        basicSetup,
+        keymap.of([indentWithTab]),
+        language,
+        wrapCompartmentRef.current.of(wordWrap ? [EditorView.lineWrapping] : []),
+        oneDark,
+        EditorView.updateListener.of(update => {
+          if (update.docChanged) {
+            const newCode = update.state.doc.toString();
+            setTabs(prev =>
+              prev.map(t => t.id === activeTabIdRef.current ? { ...t, code: newCode } : t)
+            );
+          }
+        }),
+      ],
     });
 
     if (editorViewRef.current) {
@@ -147,20 +159,7 @@ export default function CodeRunnerTool() {
       editorViewRef.current = null;
     }
 
-    const view = new EditorView({
-      state,
-      parent: editorRef.current,
-      dispatch: (tr) => {
-        view.update([tr]);
-        if (tr.docChanged) {
-          const newCode = view.state.doc.toString();
-          setTabs(prev =>
-            prev.map(t => t.id === activeTabIdRef.current ? { ...t, code: newCode } : t)
-          );
-        }
-      },
-    });
-
+    const view = new EditorView({ state, parent: editorRef.current });
     editorViewRef.current = view;
 
     return () => {
@@ -169,7 +168,14 @@ export default function CodeRunnerTool() {
         editorViewRef.current = null;
       }
     };
-  }, [currentLanguage, activeTabId]);
+  }, [currentLanguage]);
+
+  useEffect(() => {
+    if (!editorViewRef.current) return;
+    editorViewRef.current.dispatch({
+      effects: wrapCompartmentRef.current.reconfigure(wordWrap ? [EditorView.lineWrapping] : []),
+    });
+  }, [wordWrap]);
 
   useEffect(() => {
     if (editorRef.current) {
@@ -297,6 +303,31 @@ export default function CodeRunnerTool() {
       showToast("Failed to save file", "error");
     }
   }, [currentLanguage, code, activeTabId, currentTab]);
+
+  const openRenameModal = useCallback((fileName, language) => {
+    setRenameTarget({ fileName, language });
+    renameModal.openModal({});
+  }, [renameModal]);
+
+  const handleRenameFile = useCallback((newName) => {
+    if (!renameTarget) return;
+    const { fileName, language } = renameTarget;
+    const extension = language === "cpp" ? ".cpp" : ".js";
+    const fullName = newName.includes(".") ? newName : newName + extension;
+    if (fullName === fileName) { setRenameTarget(null); return; }
+    if (fileExists(language, fullName)) { showToast("A file with that name already exists", "warning"); return; }
+    const success = renameFile(language, fileName, fullName);
+    if (success) {
+      setTabs(prev => prev.map(t =>
+        (t.name === fileName && t.language === language && t.isPersisted) ? { ...t, name: fullName } : t
+      ));
+      refreshSavedFiles();
+      showToast(`Renamed to: ${fullName}`, "success");
+    } else {
+      showToast("Failed to rename file", "error");
+    }
+    setRenameTarget(null);
+  }, [renameTarget, refreshSavedFiles]);
 
   const handleDeleteTab = useCallback(() => {
     closeTab(activeTabId);
@@ -559,6 +590,15 @@ export default function CodeRunnerTool() {
           onClose={saveModal.closeModal}
           onSubmit={handleSaveFile}
         />
+        <InputModal
+          key={renameTarget ? `${renameTarget.language}:${renameTarget.fileName}` : "rename-none"}
+          isOpen={renameModal.isOpen}
+          title="Rename File"
+          placeholder="Enter new filename..."
+          defaultValue={renameTarget?.fileName?.replace(/\.(js|cpp)$/, "") || ""}
+          onClose={() => { renameModal.closeModal(); setRenameTarget(null); }}
+          onSubmit={handleRenameFile}
+        />
         <ConfirmModal
           isOpen={deleteModal.isOpen}
           title="Delete Tab"
@@ -622,6 +662,11 @@ export default function CodeRunnerTool() {
                                 onMouseLeave={e=>e.target.style.color="var(--tk-text)"}>
                                 📄 {file.name}
                               </button>
+                              <button onClick={()=>openRenameModal(file.name, "javascript")} style={{background:"none",border:"none",color:"var(--tk-text-dim)",cursor:"pointer",fontSize:"0.85rem",padding:"0.3rem 0.5rem"}}
+                                onMouseEnter={e=>e.target.style.color="var(--tk-accent)"}
+                                onMouseLeave={e=>e.target.style.color="var(--tk-text-dim)"}>
+                                ✎
+                              </button>
                               <button onClick={()=>handleDeleteSavedFile(file.name, "javascript")} style={{background:"none",border:"none",color:"var(--tk-text-dim)",cursor:"pointer",fontSize:"0.85rem",padding:"0.3rem 0.5rem"}}
                                 onMouseEnter={e=>e.target.style.color="var(--tk-error,#ff6b6b)"}
                                 onMouseLeave={e=>e.target.style.color="var(--tk-text-dim)"}>
@@ -648,7 +693,7 @@ export default function CodeRunnerTool() {
                                 onMouseLeave={e=>e.target.style.color="var(--tk-text)"}>
                                 📄 {file.name}
                               </button>
-                              <button onClick={()=>{}} style={{background:"none",border:"none",color:"var(--tk-text-dim)",cursor:"pointer",fontSize:"0.85rem",padding:"0.3rem 0.5rem"}}
+                              <button onClick={()=>openRenameModal(file.name, "cpp")} style={{background:"none",border:"none",color:"var(--tk-text-dim)",cursor:"pointer",fontSize:"0.85rem",padding:"0.3rem 0.5rem"}}
                                 onMouseEnter={e=>e.target.style.color="var(--tk-accent2)"}
                                 onMouseLeave={e=>e.target.style.color="var(--tk-text-dim)"}>
                                 ✎

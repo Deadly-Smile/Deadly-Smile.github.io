@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import Modal from "./Modal";
+import { Modal } from "../../Utils/Modal";
 
 const DEFAULT_GROUPS      = ["General", "Dev", "Utilities", "Others"];
 const DEFAULT_ASSIGNMENTS = {
@@ -18,6 +18,7 @@ const DEFAULT_ASSIGNMENTS = {
   cron:   "Dev",
   html:   "Dev",
   code:   "Dev",
+  practice: "Dev",
   color:  "Utilities",
   diff:   "Utilities",
   time:   "Utilities",

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import "../toolkit.css";
 
 import JsonTool        from "./tools/JsonTool";
@@ -25,35 +25,37 @@ import CSVTSVConverter from "./tools/CSVTSVConverter";
 import PasswordGenerator from "./tools/PasswordGenerator";
 import ImageEditorTool from "./tools/ImageEditor";
 import CSVEditor       from "./tools/CSVEditor/CSVEditor";
+import PracticeTool    from "./tools/PracticeTool";
 import Footer from "./components/Footer";
 import InputDeviceChecker from "./tools/InputDeviceChecker";
 import ToolGroupSettings, { DEFAULT_GROUPS, DEFAULT_ASSIGNMENTS } from "./components/ToolGroupSettings";
 
 const ALL_TOOLS = [
-  { id: "magic",  label: "Oracle",      component: Magic8BallTool     },
-  { id: "notes",  label: "Notes",       component: NotesTool          },
-  { id: "calc",   label: "Calculator",  component: CalculatorTool     },
-  { id: "word",   label: "Word Count",  component: WordTool           },
-  { id: "json",   label: "JSON",        component: JsonTool           },
-  { id: "regex",  label: "Regex",       component: RegexTool          },
-  { id: "base64", label: "Base64",      component: Base64Tool         },
-  { id: "jwt",    label: "JWT",         component: JWTTool            },
-  { id: "hash",   label: "Hash",        component: HashTool           },
-  { id: "http",   label: "HTTP",        component: HttpTool           },
-  { id: "cron",   label: "Cron",        component: CronExpressionParser },
-  { id: "html",   label: "HTML",        component: HtmlPreviewerTool  },
-  { id: "code",   label: "Code Runner", component: CodeRunnerTool     },
-  { id: "color",  label: "Color",       component: ColorTool          },
-  { id: "diff",   label: "Diff",        component: DiffTool           },
-  { id: "time",   label: "Timestamp",   component: TimestampConverter },
-  { id: "qr",     label: "QR Code",     component: QRCodeGenerator    },
-  { id: "csv",    label: "CSV / TSV",   component: CSVTSVConverter    },
-  { id: "pass",   label: "Password",    component: PasswordGenerator  },
-  { id: "text_extractor",    label: "Text Extractor",  component: TextExtractor },
-  { id: "chat",   label: "P2P Chat",    component: P2PChat            },
-  { id: "image",  label: "Image Editor", component: ImageEditorTool   },
-  { id: "input_checker", label: "Tester", component: InputDeviceChecker },
-  { id: "csv_editor", label: "CSV Editor", component: CSVEditor }
+  { id: "magic",  label: "Oracle",      icon: "🔮", component: Magic8BallTool     },
+  { id: "notes",  label: "Notes",       icon: "📝", component: NotesTool          },
+  { id: "calc",   label: "Calculator",  icon: "🧮", component: CalculatorTool     },
+  { id: "word",   label: "Word Count",  icon: "🔤", component: WordTool           },
+  { id: "json",   label: "JSON",        icon: "🧾", component: JsonTool           },
+  { id: "regex",  label: "Regex",       icon: "🔎", component: RegexTool          },
+  { id: "base64", label: "Base64",      icon: "🔡", component: Base64Tool         },
+  { id: "jwt",    label: "JWT",         icon: "🔑", component: JWTTool            },
+  { id: "hash",   label: "Hash",        icon: "#️⃣", component: HashTool            },
+  { id: "http",   label: "HTTP",        icon: "🌐", component: HttpTool           },
+  { id: "cron",   label: "Cron",        icon: "⏰", component: CronExpressionParser },
+  { id: "html",   label: "HTML",        icon: "📄", component: HtmlPreviewerTool  },
+  { id: "code",   label: "Code Runner", icon: "▶️", component: CodeRunnerTool     },
+  { id: "color",  label: "Color",       icon: "🎨", component: ColorTool          },
+  { id: "diff",   label: "Diff",        icon: "🔀", component: DiffTool           },
+  { id: "time",   label: "Timestamp",   icon: "🕒", component: TimestampConverter },
+  { id: "qr",     label: "QR Code",     icon: "🔳", component: QRCodeGenerator    },
+  { id: "csv",    label: "CSV / TSV",   icon: "📑", component: CSVTSVConverter    },
+  { id: "pass",   label: "Password",    icon: "🔒", component: PasswordGenerator  },
+  { id: "text_extractor",    label: "Text Extractor",  icon: "📃", component: TextExtractor },
+  { id: "chat",   label: "P2P Chat",    icon: "💬", component: P2PChat            },
+  { id: "image",  label: "Image Editor", icon: "🖼️", component: ImageEditorTool   },
+  { id: "input_checker", label: "Tester", icon: "🎮", component: InputDeviceChecker },
+  { id: "csv_editor", label: "CSV Editor", icon: "📊", component: CSVEditor },
+  { id: "practice", label: "Practice", icon: "🧩", component: PracticeTool }
 ];
 
 // ─── Config persistence ───────────────────────────────────────────────────────
@@ -68,6 +70,20 @@ function loadConfig() {
 
 function saveConfig(config) {
   localStorage.setItem("toolz-group-config", JSON.stringify(config));
+}
+
+// ─── Shared tool search/grouping ────────────────────────────────────────────
+
+function filterTools(query) {
+  const q = query.trim().toLowerCase();
+  return q ? ALL_TOOLS.filter(t => t.label.toLowerCase().includes(q)) : null;
+}
+
+function groupTools(config) {
+  const { groups, assignments } = config;
+  return groups
+    .map(g => ({ label: g, tools: ALL_TOOLS.filter(t => assignments[t.id] === g) }))
+    .filter(g => g.tools.length > 0);
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
@@ -96,33 +112,33 @@ const SettingsIcon = () => (
   </svg>
 );
 
-// ─── Sidebar ──────────────────────────────────────────────────────────────────
+const MenuIcon = () => (
+  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 6h18M3 12h18M3 18h18"/>
+  </svg>
+);
 
-function ToolItem({ tool, active, setActive }) {
+// ─── Sidebar (drawer) ─────────────────────────────────────────────────────────
+
+function ToolItem({ tool, active, onPick }) {
   return (
     <button
       className={`tk-sidebar-item${active === tool.id ? " tk-sidebar-item--active" : ""}`}
-      onClick={() => setActive(tool.id)}
+      onClick={() => onPick(tool.id)}
     >
-      {tool.label}
+      <span className="tk-tool-icon">{tool.icon}</span> {tool.label}
     </button>
   );
 }
 
-function Sidebar({ active, setActive, config, onSettingsClick }) {
+function Sidebar({ open, active, onPick, config, onSettingsClick }) {
   const [query, setQuery] = useState("");
-  const { groups, assignments } = config;
-
-  const filtered = query.trim()
-    ? ALL_TOOLS.filter(t => t.label.toLowerCase().includes(query.toLowerCase()))
-    : null;
-
-  const groupedTools = groups
-    .map(g => ({ label: g, tools: ALL_TOOLS.filter(t => assignments[t.id] === g) }))
-    .filter(g => g.tools.length > 0);
+  const filtered = filterTools(query);
+  const groupedTools = groupTools(config);
 
   return (
-    <aside className="tk-sidebar">
+    <aside className={`tk-sidebar${open ? " tk-sidebar--open" : ""}`}>
       <div className="tk-sidebar-search">
         <SearchIcon />
         <input
@@ -137,13 +153,13 @@ function Sidebar({ active, setActive, config, onSettingsClick }) {
       <nav className="tk-sidebar-nav">
         {filtered ? (
           filtered.length > 0
-            ? filtered.map(t => <ToolItem key={t.id} tool={t} active={active} setActive={setActive} />)
+            ? filtered.map(t => <ToolItem key={t.id} tool={t} active={active} onPick={onPick} />)
             : <p className="tk-sidebar-empty">No tools found</p>
         ) : (
           groupedTools.map(group => (
             <div key={group.label} className="tk-sidebar-group">
               <span className="tk-sidebar-group-label">{group.label}</span>
-              {group.tools.map(t => <ToolItem key={t.id} tool={t} active={active} setActive={setActive} />)}
+              {group.tools.map(t => <ToolItem key={t.id} tool={t} active={active} onPick={onPick} />)}
             </div>
           ))
         )}
@@ -158,10 +174,63 @@ function Sidebar({ active, setActive, config, onSettingsClick }) {
   );
 }
 
+// ─── Launcher (searchable tool grid) ──────────────────────────────────────────
+
+function ToolLauncher({ config, onPick }) {
+  const [query, setQuery] = useState("");
+  const filtered = filterTools(query);
+  const groupedTools = groupTools(config);
+
+  const grid = tools => (
+    <div className="tk-launcher-grid">
+      {tools.map(t => (
+        <button key={t.id} className="tk-launcher-card" onClick={() => onPick(t.id)}>
+          <span className="tk-launcher-card-icon">{t.icon}</span>
+          <span className="tk-launcher-card-label">{t.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="tk-launcher">
+      <div className="tk-launcher-search">
+        <SearchIcon />
+        <input
+          type="text"
+          placeholder="Search tools…"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          className="tk-launcher-search-input"
+          autoFocus
+        />
+      </div>
+
+      {filtered ? (
+        filtered.length > 0
+          ? grid(filtered)
+          : <p className="tk-sidebar-empty">No tools found</p>
+      ) : (
+        groupedTools.map(group => (
+          <div key={group.label} className="tk-launcher-group">
+            <span className="tk-launcher-group-label">{group.label}</span>
+            {grid(group.tools)}
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
 // ─── Toolz ────────────────────────────────────────────────────────────────────
 
 const Toolz = ({ embedded = false }) => {
-  const [active,       setActive]       = useState("word");
+  const [searchParams] = useSearchParams();
+  const [active,       setActive]       = useState(() => {
+    const tool = searchParams.get("tool");
+    return tool && ALL_TOOLS.some(t => t.id === tool) ? tool : null;
+  });
+  const [drawerOpen,   setDrawerOpen]   = useState(false);
   const [clock,        setClock]        = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [config,       setConfig]       = useState(loadConfig);
@@ -174,13 +243,31 @@ const Toolz = ({ embedded = false }) => {
     return () => clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key === "Escape" && drawerOpen) { setDrawerOpen(false); return; }
+      if (e.key === "`") {
+        const el = document.activeElement;
+        const typing = el && (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || el.isContentEditable);
+        if (!typing) { e.preventDefault(); setDrawerOpen(v => !v); }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawerOpen]);
+
+  function pickTool(id) {
+    setActive(id);
+    setDrawerOpen(false);
+  }
+
   function handleSaveConfig(newConfig) {
     setConfig(newConfig);
     saveConfig(newConfig);
     // Reset active tool if it was removed from all groups
-    if (!newConfig.assignments[active] || !newConfig.groups.includes(newConfig.assignments[active])) {
+    if (active && (!newConfig.assignments[active] || !newConfig.groups.includes(newConfig.assignments[active]))) {
       const first = ALL_TOOLS.find(t => newConfig.assignments[t.id]);
-      if (first) setActive(first.id);
+      setActive(first ? first.id : null);
     }
   }
 
@@ -191,17 +278,43 @@ const Toolz = ({ embedded = false }) => {
 
   const sidebar = (
     <Sidebar
+      open={drawerOpen}
       active={active}
-      setActive={setActive}
+      onPick={pickTool}
       config={config}
-      onSettingsClick={() => setShowSettings(true)}
+      onSettingsClick={() => { setShowSettings(true); setDrawerOpen(false); }}
     />
+  );
+
+  const backdrop = (
+    <div
+      className={`tk-sidebar-backdrop${drawerOpen ? " tk-sidebar-backdrop--visible" : ""}`}
+      onClick={() => setDrawerOpen(false)}
+    />
+  );
+
+  const menuBtn = (
+    <button
+      className="tk-menu-btn tk-menu-btn--floating"
+      onClick={() => setDrawerOpen(v => !v)}
+      title="Browse tools (`)"
+      aria-label="Toggle tools menu"
+    >
+      <MenuIcon />
+    </button>
   );
 
   const toolArea = (
     <main className="tk-main">
+      <div className="tk-main-topbar">
+        {active && (
+          <button className="tk-main-title" onClick={() => setActive(null)}>
+            ‹ All Tools
+          </button>
+        )}
+      </div>
       <div className="tk-tool-section">
-        {ActiveTool && <ActiveTool />}
+        {ActiveTool ? <ActiveTool /> : <ToolLauncher config={config} onPick={pickTool} />}
       </div>
     </main>
   );
@@ -219,7 +332,9 @@ const Toolz = ({ embedded = false }) => {
     return (
       <div className="tk-root tk-root--embedded">
         <div className="tk-layout">
+          {backdrop}
           {sidebar}
+          {menuBtn}
           {toolArea}
         </div>
         <div className="tk-local-notice">
@@ -233,9 +348,6 @@ const Toolz = ({ embedded = false }) => {
   return (
     <>
       <div className="tk-root">
-        <div className="tk-scanline" />
-        <div className="tk-noise" />
-
         <header className="tk-header">
           <Link to="/" className="tk-logo" title="Go to Home"
                 style={{ textDecoration: "none", cursor: "pointer", color: "inherit" }}>
@@ -249,7 +361,9 @@ const Toolz = ({ embedded = false }) => {
         </header>
 
         <div className="tk-layout">
+          {backdrop}
           {sidebar}
+          {menuBtn}
           {toolArea}
         </div>
 

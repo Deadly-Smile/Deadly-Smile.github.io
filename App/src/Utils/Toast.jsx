@@ -33,16 +33,7 @@ export function Toast() {
   }, []);
 
   return (
-    <div style={{
-      position: "fixed",
-      bottom: "2rem",
-      right: "2rem",
-      display: "flex",
-      flexDirection: "column",
-      gap: "0.8rem",
-      zIndex: 9999,
-      pointerEvents: "none"
-    }}>
+    <div className="fixed bottom-8 right-8 flex flex-col gap-3 z-[9999] pointer-events-none">
       {toasts.map(toast => (
         <ToastItem key={toast.id} toast={toast} onRemove={removeToast} />
       ))}
@@ -50,88 +41,29 @@ export function Toast() {
   );
 }
 
-function ToastItem({ toast, onRemove }) {
-  const typeStyles = {
-    success: {
-      bg: "rgba(0, 255, 136, 0.1)",
-      border: "1px solid rgba(0, 255, 136, 0.3)",
-      text: "#00ff88",
-      icon: "✓"
-    },
-    error: {
-      bg: "rgba(255, 51, 102, 0.1)",
-      border: "1px solid rgba(255, 51, 102, 0.3)",
-      text: "#ff3366",
-      icon: "✗"
-    },
-    warning: {
-      bg: "rgba(255, 204, 0, 0.1)",
-      border: "1px solid rgba(255, 204, 0, 0.3)",
-      text: "#ffcc00",
-      icon: "⚠"
-    },
-    info: {
-      bg: "rgba(74, 144, 226, 0.1)",
-      border: "1px solid rgba(74, 144, 226, 0.3)",
-      text: "#4a90e2",
-      icon: "ℹ"
-    }
-  };
+const TYPE_STYLES = {
+  success: { classes: "bg-tk-accent/10 border-tk-accent/30 text-tk-accent", icon: "✓" },
+  error: { classes: "bg-tk-accent2/10 border-tk-accent2/30 text-tk-accent2", icon: "✗" },
+  warning: { classes: "bg-tk-accent3/10 border-tk-accent3/30 text-tk-accent3", icon: "⚠" },
+  info: { classes: "bg-tk-info/10 border-tk-info/30 text-tk-info", icon: "ℹ" },
+};
 
-  const style = typeStyles[toast.type] || typeStyles.info;
+function ToastItem({ toast, onRemove }) {
+  const style = TYPE_STYLES[toast.type] || TYPE_STYLES.info;
 
   return (
     <div
-      style={{
-        background: style.bg,
-        border: style.border,
-        borderRadius: "var(--tk-radius)",
-        padding: "0.8rem 1rem",
-        color: style.text,
-        fontFamily: "var(--tk-mono)",
-        fontSize: "0.75rem",
-        display: "flex",
-        alignItems: "center",
-        gap: "0.6rem",
-        animation: "tk-toast-slide-in 0.3s ease-out",
-        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.3)",
-        pointerEvents: "auto",
-        maxWidth: "300px",
-        wordBreak: "break-word"
-      }}
+      className={`${style.classes} border rounded-tk py-3 px-4 font-tk-mono text-xs flex items-center gap-2.5 animate-toast-slide-in shadow-lg pointer-events-auto max-w-[300px] break-words`}
     >
-      <span style={{ fontSize: "1.1em", flexShrink: 0 }}>{style.icon}</span>
-      <span style={{ flex: 1 }}>{toast.message}</span>
+      <span className="text-lg flex-shrink-0">{style.icon}</span>
+      <span className="flex-1">{toast.message}</span>
       <button
         onClick={() => onRemove(toast.id)}
-        style={{
-          background: "none",
-          border: "none",
-          color: style.text,
-          cursor: "pointer",
-          fontSize: "1em",
-          padding: 0,
-          flexShrink: 0,
-          opacity: 0.6,
-          transition: "opacity 0.2s"
-        }}
-        onMouseEnter={e => e.target.style.opacity = "1"}
-        onMouseLeave={e => e.target.style.opacity = "0.6"}
+        className="bg-transparent border-none cursor-pointer text-base p-0 flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity"
+        style={{ color: "inherit" }}
       >
         ✕
       </button>
-      <style>{`
-        @keyframes tk-toast-slide-in {
-          from {
-            opacity: 0;
-            transform: translateX(100%);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0);
-          }
-        }
-      `}</style>
     </div>
   );
 }
