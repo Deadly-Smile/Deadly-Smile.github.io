@@ -28,6 +28,7 @@ import CSVEditor       from "./tools/CSVEditor/CSVEditor";
 import PracticeTool    from "./tools/PracticeTool";
 import Footer from "./components/Footer";
 import InputDeviceChecker from "./tools/InputDeviceChecker";
+import MusicPlayer from "./tools/MusicPlayer";
 import ToolGroupSettings, { DEFAULT_GROUPS, DEFAULT_ASSIGNMENTS } from "./components/ToolGroupSettings";
 
 const ALL_TOOLS = [
@@ -55,7 +56,8 @@ const ALL_TOOLS = [
   { id: "image",  label: "Image Editor", icon: "🖼️", component: ImageEditorTool   },
   { id: "input_checker", label: "Tester", icon: "🎮", component: InputDeviceChecker },
   { id: "csv_editor", label: "CSV Editor", icon: "📊", component: CSVEditor },
-  { id: "practice", label: "Practice", icon: "🧩", component: PracticeTool }
+  { id: "practice", label: "Practice", icon: "🧩", component: PracticeTool },
+  { id: "music_player", label: "Music Player", icon: "🎵", component: MusicPlayer }
 ];
 
 // ─── Config persistence ───────────────────────────────────────────────────────

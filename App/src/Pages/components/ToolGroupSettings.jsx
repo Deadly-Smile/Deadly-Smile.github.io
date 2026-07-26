@@ -9,6 +9,7 @@ const DEFAULT_ASSIGNMENTS = {
   word:   "General",
   image:  "General",
   csv_editor: "General",
+  music_player: "General",
   json:   "Dev",
   regex:  "Dev",
   base64: "Dev",

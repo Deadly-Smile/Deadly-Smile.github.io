@@ -20,7 +20,11 @@
     "an-array-of-english-words": "^2.0.0",
     "chess.js": "^1.4.0",
     "codemirror": "^6.0.2",
+    "hot-formula-parser": "^4.0.0",
+    "idb": "^8.0.3",
     "mathjs": "^15.2.0",
+    "music-metadata-browser": "^2.5.11",
+    "papaparse": "^5.4.1",
     "pdfjs-dist": "^4.3.136",
     "peerjs": "^1.5.5",
     "react": "^18.2.0",
@@ -31,8 +35,6 @@
     "react-konva": "^18.2.10",
     "react-router-dom": "^6.17.0",
     "tesseract.js": "^7.0.0",
-    "hot-formula-parser": "^4.0.0",
-    "papaparse": "^5.4.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

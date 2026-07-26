@@ -1,0 +1,343 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--tk-text);
+  font-family: var(--tk-mono);
+}
+
+.tabBar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.mainPane {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 1rem;
+}
+
+.visualizerWrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: var(--tk-surface);
+  border: 1px solid var(--tk-border);
+  border-radius: var(--tk-radius);
+  padding: 0.5rem;
+  overflow: hidden;
+}
+
+.visualizerCanvas {
+  width: 100%;
+  max-width: 100%;
+  height: 90px;
+  display: block;
+}
+
+.nowPlayingBar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--tk-border-bright);
+  background: var(--tk-surface);
+}
+
+.nowPlayingTitle {
+  font-size: 0.8rem;
+  color: var(--tk-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nowPlayingArtist {
+  font-size: 0.7rem;
+  color: var(--tk-text-dim);
+}
+
+.transportControls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.controlBtn {
+  background: transparent;
+  border: 1px solid var(--tk-border-bright);
+  color: var(--tk-text);
+  border-radius: var(--tk-radius);
+  padding: 0.4rem 0.65rem;
+  cursor: pointer;
+  font-family: var(--tk-mono);
+  font-size: 0.9rem;
+  transition: background 0.15s, color 0.15s;
+}
+
+.controlBtn:hover {
+  background: var(--tk-accent);
+  color: var(--tk-bg);
+}
+
+.controlBtnActive {
+  background: var(--tk-accent);
+  color: var(--tk-bg);
+  border-color: var(--tk-accent);
+}
+
+.seekRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.timeLabel {
+  font-size: 0.7rem;
+  color: var(--tk-text-dim);
+  min-width: 2.8rem;
+  text-align: center;
+}
+
+.range {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  height: 2px;
+  background: var(--tk-border-bright);
+  outline: none;
+  border-radius: var(--tk-radius);
+}
+
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--tk-accent);
+  border: 2px solid var(--tk-bg);
+  cursor: pointer;
+}
+
+.range::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--tk-accent);
+  border: 2px solid var(--tk-bg);
+  cursor: pointer;
+}
+
+.volumeRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 140px;
+}
+
+.volumeIcon {
+  font-size: 0.9rem;
+  color: var(--tk-text-dim);
+}
+
+.rejectedList {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.rejectedItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--tk-accent2);
+  background: var(--tk-surface2);
+  border: 1px solid var(--tk-border);
+  border-radius: var(--tk-radius);
+  padding: 0.35rem 0.5rem;
+}
+
+.rejectedItem button {
+  background: transparent;
+  border: none;
+  color: var(--tk-text-dim);
+  cursor: pointer;
+}
+
+.trackList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  overflow-y: auto;
+}
+
+.trackRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--tk-border);
+  border-radius: var(--tk-radius);
+  background: var(--tk-surface2);
+}
+
+.trackRowActive {
+  border-color: var(--tk-accent);
+}
+
+.trackPlayBtn,
+.trackDeleteBtn {
+  background: transparent;
+  border: 1px solid var(--tk-border-bright);
+  color: var(--tk-text);
+  border-radius: var(--tk-radius);
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  font-family: var(--tk-mono);
+}
+
+.trackDeleteBtn:hover {
+  border-color: var(--tk-accent2);
+  color: var(--tk-accent2);
+}
+
+.trackInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.trackTitle {
+  font-size: 0.85rem;
+  color: var(--tk-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trackArtist {
+  font-size: 0.7rem;
+  color: var(--tk-text-dim);
+}
+
+.trackDuration {
+  font-size: 0.75rem;
+  color: var(--tk-text-dim);
+  min-width: 2.8rem;
+  text-align: right;
+}
+
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 1rem 0.5rem;
+  background: var(--tk-surface2);
+  border: 1px solid var(--tk-border-bright);
+  border-radius: var(--tk-radius);
+  cursor: pointer;
+  color: var(--tk-text);
+  font-family: var(--tk-mono);
+  transition: border-color 0.15s;
+}
+
+.card:hover {
+  border-color: var(--tk-accent);
+}
+
+.cardIcon {
+  font-size: 1.8rem;
+}
+
+.cardLabel {
+  font-size: 0.8rem;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.cardMeta {
+  font-size: 0.7rem;
+  color: var(--tk-text-dim);
+}
+
+.cardCover {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: var(--tk-radius);
+  border: 1px solid var(--tk-border-bright);
+}
+
+.detailHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.detailHeader h3 {
+  flex: 1;
+  min-width: 0;
+  color: var(--tk-text);
+  font-size: 1rem;
+}
+
+.coverPicker {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.coverPreview,
+.coverPlaceholder {
+  width: 80px;
+  height: 80px;
+  border-radius: var(--tk-radius);
+  border: 1px solid var(--tk-border-bright);
+  object-fit: cover;
+}
+
+.coverPlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--tk-surface2);
+  color: var(--tk-text-dim);
+  font-size: 1.5rem;
+}
+
+.trackSelect {
+  background: var(--tk-surface2);
+  color: var(--tk-text);
+  border: 1px solid var(--tk-border-bright);
+  border-radius: var(--tk-radius);
+  padding: 0.35rem 0.5rem;
+  font-family: var(--tk-mono);
+  font-size: 0.8rem;
+  margin-bottom: 0.75rem;
+}
