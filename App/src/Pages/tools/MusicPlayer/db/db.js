@@ -1,4 +1,5 @@
 import { openDB } from "idb";
+import { sha256Hex } from "../../../../Utils/hash";
 
 const DB_NAME = "music-player-db";
 const DB_VERSION = 1;
@@ -77,6 +78,15 @@ export const getAllTracks = () => getAll("tracks");
 export const getTrack = (id) => get("tracks", id);
 export const putTrack = (track) => put("tracks", track);
 export const deleteTrack = (id) => del("tracks", id);
+
+// Pre-sync-feature tracks predate the `hash` field — backfills it in place
+// (once) so P2P sync can dedupe by audio content instead of filename/size.
+export async function ensureTrackHash(track) {
+  if (track.hash) return track.hash;
+  const hash = await sha256Hex(track.fileBlob);
+  await putTrack({ ...track, hash });
+  return hash;
+}
 
 export const getAllAlbums = () => getAll("albums");
 export const getAlbum = (id) => get("albums", id);

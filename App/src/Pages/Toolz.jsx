@@ -29,6 +29,7 @@ import PracticeTool    from "./tools/PracticeTool";
 import Footer from "./components/Footer";
 import InputDeviceChecker from "./tools/InputDeviceChecker";
 import MusicPlayer from "./tools/MusicPlayer";
+import QuestionBank from "./tools/QuestionBank/QuestionBank";
 import ToolGroupSettings, { DEFAULT_GROUPS, DEFAULT_ASSIGNMENTS } from "./components/ToolGroupSettings";
 
 const ALL_TOOLS = [
@@ -57,7 +58,8 @@ const ALL_TOOLS = [
   { id: "input_checker", label: "Tester", icon: "🎮", component: InputDeviceChecker },
   { id: "csv_editor", label: "CSV Editor", icon: "📊", component: CSVEditor },
   { id: "practice", label: "Practice", icon: "🧩", component: PracticeTool },
-  { id: "music_player", label: "Music Player", icon: "🎵", component: MusicPlayer }
+  { id: "music_player", label: "Music Player", icon: "🎵", component: MusicPlayer },
+  { id: "question_bank", label: "Question Bank", icon: "📚", component: QuestionBank }
 ];
 
 // ─── Config persistence ───────────────────────────────────────────────────────

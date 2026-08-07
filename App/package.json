@@ -22,6 +22,7 @@
     "codemirror": "^6.0.2",
     "hot-formula-parser": "^4.0.0",
     "idb": "^8.0.3",
+    "jsqr": "^1.4.0",
     "mathjs": "^15.2.0",
     "music-metadata-browser": "^2.5.11",
     "papaparse": "^5.4.1",

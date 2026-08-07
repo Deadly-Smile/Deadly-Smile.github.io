@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useReducer, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { StatusBar } from "../tk-shared.jsx";
 import { libraryReducer, initialLibraryState } from "./libraryReducer";
 import {
@@ -22,6 +23,7 @@ import PlaylistView from "./components/PlaylistView";
 import AlbumView from "./components/AlbumView";
 import PlayerControls from "./components/PlayerControls";
 import Visualizer from "./components/Visualizer";
+import SyncPanel from "./components/SyncPanel";
 import styles from "./MusicPlayer.module.css";
 
 const REPEAT_CYCLE = ["off", "all", "one"];
@@ -29,11 +31,14 @@ const TABS = [
   { id: "library", label: "Library" },
   { id: "playlists", label: "Playlists" },
   { id: "albums", label: "Albums" },
+  { id: "sync", label: "Sync" },
 ];
 
 export default function MusicPlayer() {
+  const [searchParams] = useSearchParams();
+  const autoJoinRoomId = searchParams.get("sync")?.toUpperCase() || null;
   const [library, dispatch] = useReducer(libraryReducer, initialLibraryState);
-  const [activeTab, setActiveTab] = useState("library");
+  const [activeTab, setActiveTab] = useState(autoJoinRoomId ? "sync" : "library");
   const [repeatMode, setRepeatMode] = useState(() => getSettings().repeatMode);
   const [status, setStatus] = useState(null);
 
@@ -45,6 +50,12 @@ export default function MusicPlayer() {
   }, [shuffleQueue, repeatMode]);
 
   const player = useAudioPlayer(currentTrack, { repeatMode, onNaturalEnd: handleNaturalEnd });
+
+  const reloadLibrary = useCallback(() => {
+    return Promise.all([getAllTracks(), getAllAlbums(), getAllPlaylists()])
+      .then(([tracks, albums, playlists]) => dispatch({ type: "LOAD_SUCCESS", tracks, albums, playlists }))
+      .catch((e) => dispatch({ type: "LOAD_ERROR", error: e.message }));
+  }, []);
 
   useEffect(() => {
     dispatch({ type: "LOAD_START" });
@@ -262,7 +273,7 @@ export default function MusicPlayer() {
             onRemoveTrack={handleRemoveTrackFromPlaylist}
             onPlay={handlePlayPlaylist}
           />
-        ) : (
+        ) : activeTab === "albums" ? (
           <AlbumView
             albums={library.albums}
             tracks={library.tracks}
@@ -273,6 +284,8 @@ export default function MusicPlayer() {
             onRemoveTrack={handleRemoveTrackFromAlbum}
             onPlay={handlePlayAlbum}
           />
+        ) : (
+          <SyncPanel onSynced={reloadLibrary} autoJoinRoomId={autoJoinRoomId} />
         )}
       </div>
 
