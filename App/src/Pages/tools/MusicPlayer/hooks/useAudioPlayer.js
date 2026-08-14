@@ -14,6 +14,8 @@ export function useAudioPlayer(track, { repeatMode, onNaturalEnd } = {}) {
   const hasHydratedRef = useRef(false);
   const isPlayingRef = useRef(false);
   const lastSaveRef = useRef(0);
+  const suppressPauseRef = useRef(false);
+  const autoAdvanceRef = useRef(false);
 
   const trackRef = useRef(track);
   trackRef.current = track;
@@ -61,12 +63,23 @@ export function useAudioPlayer(track, { repeatMode, onNaturalEnd } = {}) {
         audio.currentTime = 0;
         audio.play().catch(() => {});
       } else {
+        // Reaching the end of a track fires a genuine "pause" event per spec
+        // (paused is set true right before "ended"), which would otherwise
+        // make the upcoming auto-advance look like nothing was playing.
+        autoAdvanceRef.current = true;
         onNaturalEndRef.current?.();
       }
     };
 
-    const handlePlay = () => setIsPlaying(true);
+    const handlePlay = () => {
+      suppressPauseRef.current = false;
+      setIsPlaying(true);
+    };
     const handlePause = () => {
+      if (suppressPauseRef.current) {
+        suppressPauseRef.current = false;
+        return;
+      }
       setIsPlaying(false);
       saveLastState({ lastTrackId: trackRef.current?.id ?? null, lastPositionSeconds: audio.currentTime });
     };
@@ -98,19 +111,39 @@ export function useAudioPlayer(track, { repeatMode, onNaturalEnd } = {}) {
     const audio = audioRef.current;
     if (!audio || !track) return;
 
-    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    const previousUrl = objectUrlRef.current;
     const url = URL.createObjectURL(track.fileBlob);
     objectUrlRef.current = url;
 
-    const shouldResume = isPlayingRef.current;
+    const shouldResume = isPlayingRef.current || autoAdvanceRef.current;
+    autoAdvanceRef.current = false;
+    if (shouldResume) suppressPauseRef.current = true;
+    // Assigning .src already triggers the browser's load algorithm; an
+    // explicit .load() right before .play() can abort that pending play()
+    // with a spurious "interrupted by a new load request" error.
     audio.src = url;
-    audio.load();
     setCurrentTime(0);
     setDuration(0);
+    // Revoke the OLD blob URL only now that audio.src no longer points at
+    // it — revoking it while it was still the active src (as before) fires
+    // a real "error" event on the element and force-pauses playback.
+    if (previousUrl) URL.revokeObjectURL(previousUrl);
 
-    if (shouldResume) {
-      audio.play().catch(() => {});
-    }
+    if (!shouldResume) return;
+
+    // The new resource has no data yet immediately after swapping src —
+    // calling play() right away can get silently rejected. Wait until the
+    // element actually has playable data before attempting to resume.
+    const attemptResume = () => {
+      if (objectUrlRef.current !== url) return;
+      audio.play().catch(() => {
+        if (objectUrlRef.current !== url) return;
+        suppressPauseRef.current = false;
+        setIsPlaying(false);
+      });
+    };
+    audio.addEventListener("loadeddata", attemptResume, { once: true });
+    return () => audio.removeEventListener("loadeddata", attemptResume);
   }, [track?.id]);
 
   const play = useCallback(() => {
