@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import Breakout from "./games/Breakout";
 import Minesweeper from "./games/Minesweeper";
 import Snake from "./games/Snake";
@@ -9,6 +10,7 @@ import Tetris from "./games/Tetris";
 import Footer from "./components/Footer";
 import CheckMate from "./games/Chess";
 import Solitaire from "./games/Solitaire";
+import Poker from "./games/Poker/Poker";
 
 const GAMES = [
   { id: "chess", label: "♟ CHESS", component: CheckMate, desc: "Beat the AI opponent!" },
@@ -20,10 +22,18 @@ const GAMES = [
   { id: "breakout", label: "🎮 BREAKOUT", component: Breakout, desc: "Break bricks and level up!" },
   { id: "flappy", label: "🐦 FLAPPY BIRD", component: FlappyBird, desc: "Avoid the pipes" },
   { id: "Solitaire", label: "🃏 SOLITAIRE", component: Solitaire, desc: "Play the classic card game!" },
+  { id: "poker", label: "♠️ TEXAS HOLD'EM", component: Poker, desc: "No-Limit Hold'em vs. 5 AI opponents" },
 ];
 
 const Games = () => {
-  const [selectedGame, setSelectedGame] = useState(null);
+  // Supports a shared multiplayer link (?game=poker&room=XXXXXX) auto-selecting
+  // the game — Poker.jsx reads the `room` param itself, same pattern Chat.jsx
+  // already uses for its own share links.
+  const [searchParams] = useSearchParams();
+  const [selectedGame, setSelectedGame] = useState(() => {
+    const game = searchParams.get("game");
+    return game && GAMES.some(g => g.id === game) ? game : null;
+  });
 
   if (selectedGame) {
     const game = GAMES.find((g) => g.id === selectedGame);

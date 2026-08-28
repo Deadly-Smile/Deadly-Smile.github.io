@@ -1,15 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import Peer from "peerjs";
-import { getIceServers, QrScanner } from "../../tk-shared.jsx";
+import { getIceServers, generateRoomId, buildQrUrl, QrScanner } from "../../tk-shared.jsx";
 import { getAllTracks, getAllAlbums, getAllPlaylists, putTrack, putAlbum, putPlaylist, ensureTrackHash } from "../db/db";
 import { trackToManifestEntry, planTrackSync, mergeNamedCollections } from "../sync";
 
 const CHUNK_SIZE = 16 * 1024;
-const generateRoomId = () => Math.random().toString(36).slice(2, 8).toUpperCase();
-
-function buildQrUrl(data, size = 220) {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(data)}`;
-}
 
 function buildSyncLink(roomId) {
   return `${window.location.origin}/toolz?tool=music_player&sync=${roomId}`;
@@ -265,7 +260,7 @@ export default function SyncPanel({ onSynced, autoJoinRoomId }) {
         {roomId ? (
           <>
             <div className="tk-qr-wrap">
-              <img src={buildQrUrl(buildSyncLink(roomId))} alt="Scan to receive this library" width={200} height={200} />
+              <img src={buildQrUrl(buildSyncLink(roomId), 220)} alt="Scan to receive this library" width={200} height={200} />
             </div>
             <p className="tk-sync-status">Room code: {roomId}</p>
           </>

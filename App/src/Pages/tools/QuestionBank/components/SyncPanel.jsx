@@ -3,24 +3,7 @@ import Peer from "peerjs";
 import { getAllCategories, getAllQuestions, getAllTags, importBank } from "../db";
 import { serializeBank } from "../export";
 import QrScanner from "./QrScanner";
-
-const GOOGLE_STUN = [{ urls: "stun:stun.l.google.com:19302" }];
-const generateRoomId = () => Math.random().toString(36).slice(2, 8).toUpperCase();
-
-async function getIceServers() {
-  try {
-    const res = await fetch("/api/turn-credentials");
-    const { iceServers, fallback } = await res.json();
-    if (fallback) console.warn("TURN unavailable, using Google STUN fallback.");
-    return iceServers;
-  } catch {
-    return GOOGLE_STUN;
-  }
-}
-
-function buildQrUrl(data, size = 220) {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(data)}`;
-}
+import { getIceServers, generateRoomId, buildQrUrl } from "../../tk-shared.jsx";
 
 function buildSyncLink(roomId) {
   return `${window.location.origin}/toolz?tool=question_bank&sync=${roomId}`;
@@ -144,7 +127,7 @@ export default function SyncPanel({ onSynced, autoJoinRoomId }) {
         {roomId ? (
           <>
             <div className="tk-qb-qr-wrap">
-              <img src={buildQrUrl(buildSyncLink(roomId))} alt="Scan to receive this question bank" width={200} height={200} />
+              <img src={buildQrUrl(buildSyncLink(roomId), 220)} alt="Scan to receive this question bank" width={200} height={200} />
             </div>
             <p className="tk-qb-review-reason">Room code: {roomId}</p>
           </>

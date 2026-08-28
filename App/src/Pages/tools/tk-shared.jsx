@@ -2,20 +2,78 @@
 import { useState, useEffect, useRef } from "react";
 import jsQR from "jsqr";
 
-const GOOGLE_STUN = [{ urls: "stun:stun.l.google.com:19302" }];
+// Used when /api/turn-credentials is unreachable or not configured (e.g. local dev).
+// Multiple STUN servers add redundancy, but STUN alone can't traverse symmetric NAT
+// or firewalls that block UDP outright — so a public TURN relay (with a TCP/443
+// option) is included too, otherwise those networks simply can't connect at all.
+const FALLBACK_ICE_SERVERS = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun2.l.google.com:19302" },
+  { urls: "stun:stun.cloudflare.com:3478" },
+  {
+    urls: [
+      "turn:openrelay.metered.ca:80",
+      "turn:openrelay.metered.ca:443",
+      "turn:openrelay.metered.ca:443?transport=tcp",
+    ],
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+];
 
-// Fetches TURN credentials from the Vercel serverless endpoint, falling back
-// to Google's public STUN server on any failure so P2P features degrade
-// gracefully instead of breaking. Shared by every WebRTC-based tool.
+// Fetches TURN credentials from the Vercel serverless endpoint, falling back to
+// FALLBACK_ICE_SERVERS on any failure so P2P features degrade gracefully instead
+// of breaking. Shared by every WebRTC-based tool (Chat, QuestionBank/MusicPlayer sync).
 export async function getIceServers() {
   try {
     const res = await fetch("/api/turn-credentials");
     const { iceServers, fallback } = await res.json();
-    if (fallback) console.warn("TURN unavailable, using Google STUN fallback.");
-    return iceServers;
+    if (fallback) console.warn("TURN unavailable, using local ICE server fallback.");
+    return iceServers?.length ? iceServers : FALLBACK_ICE_SERVERS;
   } catch {
-    return GOOGLE_STUN;
+    return FALLBACK_ICE_SERVERS;
   }
+}
+
+// Room directory (see api/rooms.js) — lets a host opt in to being discoverable
+// without sharing a code or QR. Every call is best-effort: if the directory
+// isn't configured (no Upstash env vars) these silently no-op / return empty,
+// so discovery is a pure enhancement and never blocks the code/QR path.
+export async function registerOpenRoom(roomId, tool) {
+  try {
+    await fetch("/api/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ roomId, tool }),
+    });
+  } catch { /* best-effort */ }
+}
+
+export async function unregisterOpenRoom(roomId) {
+  try {
+    await fetch("/api/rooms", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ roomId }),
+    });
+  } catch { /* best-effort */ }
+}
+
+export async function fetchOpenRooms(tool) {
+  try {
+    const res = await fetch(`/api/rooms?tool=${encodeURIComponent(tool)}`);
+    const { rooms, available } = await res.json();
+    return available ? rooms : [];
+  } catch {
+    return [];
+  }
+}
+
+export const generateRoomId = () => Math.random().toString(36).slice(2, 8).toUpperCase();
+
+export function buildQrUrl(data, size = 200) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(data)}`;
 }
 
 // Camera + jsQR decode loop. Stops itself the moment a code is found — the

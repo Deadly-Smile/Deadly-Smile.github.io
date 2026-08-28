@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import Peer from "peerjs";
+import { getIceServers, generateRoomId, buildQrUrl, registerOpenRoom, unregisterOpenRoom, fetchOpenRooms } from "./tk-shared.jsx";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const CHUNK_SIZE = 16 * 1024;
-const GOOGLE_STUN = [{ urls: "stun:stun.l.google.com:19302" }];
-const generateId = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -16,17 +15,6 @@ function formatBytes(bytes) {
 
 function formatTime(date) {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-async function getIceServers() {
-  try {
-    const res = await fetch("/api/turn-credentials");
-    const { iceServers, fallback } = await res.json();
-    if (fallback) console.warn("TURN unavailable, using Google STUN fallback.");
-    return iceServers;
-  } catch {
-    return GOOGLE_STUN;
-  }
 }
 
 function buildObjectUrl(msg) {
@@ -211,10 +199,6 @@ function buildShareLink(roomId) {
   return `${window.location.origin}/toolz?tool=chat&room=${roomId}`;
 }
 
-function buildQrUrl(data, size = 200) {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(data)}`;
-}
-
 function FileStagePreview({ file, onCancel, onConfirm }) {
   const [previewUrl, setPreviewUrl] = useState(null);
   const isImage = file.type.startsWith("image/");
@@ -334,11 +318,31 @@ export default function P2PChat() {
   const [statusMsg, setStatusMsg] = useState("");
   const [showJoin, setShowJoin] = useState(false);
   const [peerTyping, setPeerTyping] = useState(false);
+  const [discoverable, setDiscoverable] = useState(false);
+  const [openRooms, setOpenRooms] = useState([]);
+  const [roomsLoading, setRoomsLoading] = useState(false);
 
   const peerRef = useRef(null);
   const connRef = useRef(null);
   const messagesEndRef = useRef(null);
   const incomingTransfersRef = useRef(new Map());
+  const roomHeartbeatRef = useRef(null);
+
+  // Manual only — no polling interval, so sitting idle on the home screen
+  // doesn't keep hammering the directory endpoint.
+  const refreshOpenRooms = useCallback(async () => {
+    setRoomsLoading(true);
+    const rooms = await fetchOpenRooms("chat");
+    setOpenRooms(rooms);
+    setRoomsLoading(false);
+  }, []);
+
+  // One-time load when the home screen first shows, so the list isn't empty
+  // before the user has a reason to hit refresh.
+  useEffect(() => {
+    if (view === "home") refreshOpenRooms();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -391,12 +395,30 @@ export default function P2PChat() {
     conn.on("error", (e) => setStatusMsg("Error: " + e.message));
   }, []);
 
+  // Stops announcing this room in the open-room directory — called once a peer
+  // connects (it's no longer "open") or the host leaves before anyone joins.
+  const stopRoomHeartbeat = useCallback((roomId) => {
+    if (roomHeartbeatRef.current) { clearInterval(roomHeartbeatRef.current); roomHeartbeatRef.current = null; }
+    if (roomId) unregisterOpenRoom(roomId);
+  }, []);
+
   const createRoom = async () => {
+    const wantsDiscoverable = discoverable;
     const iceServers = await getIceServers();
-    const peer = new Peer(generateId(), { config: { iceServers } });
+    const peer = new Peer(generateRoomId(), { config: { iceServers } });
     peerRef.current = peer;
-    peer.on("open", (id) => { setMyId(id); setView("waiting"); });
-    peer.on("connection", (conn) => { connRef.current = conn; setupConn(conn, true); setView("chat"); });
+    peer.on("open", (id) => {
+      setMyId(id);
+      setView("waiting");
+      if (wantsDiscoverable) {
+        registerOpenRoom(id, "chat");
+        roomHeartbeatRef.current = setInterval(() => registerOpenRoom(id, "chat"), 20000);
+      }
+    });
+    peer.on("connection", (conn) => {
+      stopRoomHeartbeat(peerRef.current?.id);
+      connRef.current = conn; setupConn(conn, true); setView("chat");
+    });
     peer.on("error", (e) => setStatusMsg("Error: " + e.message));
   };
 
@@ -457,6 +479,7 @@ export default function P2PChat() {
   }, []);
 
   const disconnect = () => {
+    stopRoomHeartbeat(peerRef.current?.id);
     connRef.current?.close();
     peerRef.current?.destroy();
     connRef.current = null; peerRef.current = null;
@@ -464,6 +487,10 @@ export default function P2PChat() {
     setView("home"); setMessages([]); setJoinInput("");
     setShowJoin(false); setStatusMsg(""); setPeerTyping(false);
   };
+
+  // Safety net for a closed tab / unmount while a discoverable room is still
+  // waiting — the directory entry also expires on its own via TTL either way.
+  useEffect(() => () => stopRoomHeartbeat(peerRef.current?.id), [stopRoomHeartbeat]);
 
   const grouped = useMemo(() => messages.map((msg, i) => ({
     ...msg,
@@ -478,11 +505,36 @@ export default function P2PChat() {
       <style>{globalStyles}</style>
       <div style={s.card}>
         <h2 style={s.title}>P2P Chat</h2>
-        <p style={{ ...s.muted, marginBottom: 20 }}>Direct, encrypted, no account needed.</p>
+        <p style={{ ...s.muted, margin: "0 0 20px" }}>Direct, encrypted, no account needed.</p>
 
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
           <button style={s.btnPrimary} onClick={createRoom}>+ Create room</button>
           <button style={s.btnOutline} onClick={() => setShowJoin(v => !v)}>Join room</button>
+        </div>
+
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--tk-text-dim)", marginBottom: 12, cursor: "pointer" }}>
+          <input type="checkbox" checked={discoverable} onChange={e => setDiscoverable(e.target.checked)} />
+          List my next room below so others can join without a code
+        </label>
+
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <p style={s.muted}>Open rooms — tap to join instantly:</p>
+            <button style={{ ...s.iconBtn, fontSize: 13 }} onClick={refreshOpenRooms} disabled={roomsLoading} title="Refresh list">
+              {roomsLoading ? "…" : "⟳"}
+            </button>
+          </div>
+          {openRooms.length > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {openRooms.map(r => (
+                <button key={r.roomId} style={{ ...s.btnOutline, textAlign: "left" }} onClick={() => joinRoom(r.roomId)}>
+                  {r.roomId} <span style={{ opacity: 0.6, fontSize: 11 }}>· waiting</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p style={{ ...s.muted, fontSize: 12 }}>{roomsLoading ? "Checking…" : "None right now."}</p>
+          )}
         </div>
 
         {showJoin && (
@@ -494,7 +546,7 @@ export default function P2PChat() {
           </div>
         )}
 
-        {statusMsg && <p style={{ ...s.muted, marginTop: 10, color: "var(--tk-accent2)" }}>{statusMsg}</p>}
+        {statusMsg && <p style={{ ...s.muted, margin: "10px 0 0", color: "var(--tk-accent2)" }}>{statusMsg}</p>}
 
         <div style={{ marginTop: 20, padding: "12px 14px", background: "var(--tk-surface2)", borderRadius: 10, border: "0.5px solid var(--tk-border)" }}>
           <p style={{ margin: 0, fontSize: 12, color: "var(--tk-text-dim)", lineHeight: 1.6 }}>
@@ -514,6 +566,11 @@ export default function P2PChat() {
         <div style={s.card}>
           <h2 style={s.title}>Room ready</h2>
           <p style={s.muted}>Share the link or QR code below — whoever opens it connects instantly, no typing needed.</p>
+          {discoverable && (
+            <p style={{ ...s.muted, margin: "6px 0 0", color: "var(--tk-info)" }}>
+              📡 Also listed publicly — anyone on the home screen can join without the code.
+            </p>
+          )}
 
           <div style={{ display: "flex", gap: 10, alignItems: "center", background: "var(--tk-surface2)", border: "0.5px solid var(--tk-border-bright)", borderRadius: 10, padding: "12px 16px", margin: "16px 0 10px" }}>
             <code style={{ flex: 1, fontSize: 22, fontFamily: "monospace", letterSpacing: "0.15em", color: "var(--tk-info)" }}>{myId}</code>
@@ -588,7 +645,11 @@ const s = {
   chatContainer: {
     maxWidth: 480, margin: "1rem auto", fontFamily: "system-ui,sans-serif", color: "var(--tk-text)",
     background: "var(--tk-surface)", border: "0.5px solid var(--tk-border)", borderRadius: 14,
-    display: "flex", flexDirection: "column", height: "calc(100vh - 2rem)", overflow: "hidden",
+    display: "flex", flexDirection: "column", overflow: "hidden",
+    // This tool renders inside the site's own sticky header + topbar + footer, not
+    // as a standalone page — clamp() leaves room for that surrounding chrome (~260px)
+    // instead of claiming a near-full extra viewport on top of it.
+    height: "clamp(420px, calc(100vh - 260px), 720px)",
   },
   chatHeader: {
     display: "flex", justifyContent: "space-between", alignItems: "center",
