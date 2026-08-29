@@ -12,18 +12,28 @@ export default async function handler(req, res) {
     // symmetric NAT or UDP-blocking firewalls.
     res.status(200).json({
       iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-        { urls: "stun:stun2.l.google.com:19302" },
-        { urls: "stun:stun.cloudflare.com:3478" },
         {
-          urls: [
-            "turn:openrelay.metered.ca:80",
-            "turn:openrelay.metered.ca:443",
-            "turn:openrelay.metered.ca:443?transport=tcp",
-          ],
-          username: "openrelayproject",
-          credential: "openrelayproject",
+          urls: "stun:stun.relay.metered.ca:80",
+        },
+        {
+          urls: "turn:global.relay.metered.ca:80",
+          username: process.env.METERED_USERNAME,
+          credential: process.env.METERED_CREDENTIAL,
+        },
+        {
+          urls: "turn:global.relay.metered.ca:80?transport=tcp",
+          username: process.env.METERED_USERNAME,
+          credential: process.env.METERED_CREDENTIAL,
+        },
+        {
+          urls: "turn:global.relay.metered.ca:443",
+          username: process.env.METERED_USERNAME,
+          credential: process.env.METERED_CREDENTIAL,
+        },
+        {
+          urls: "turns:global.relay.metered.ca:443?transport=tcp",
+          username: process.env.METERED_USERNAME,
+          credential: process.env.METERED_CREDENTIAL,
         },
       ],
       fallback: true,

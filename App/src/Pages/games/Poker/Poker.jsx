@@ -605,10 +605,10 @@ export default function Poker() {
               </div>
             )}
 
-            <div className="bg-slate-800/80 rounded-xl border border-slate-700 p-3 max-h-36 overflow-y-auto text-xs text-slate-300 space-y-1 font-mono">
+            {/* <div className="bg-slate-800/80 rounded-xl border border-slate-700 p-3 max-h-36 overflow-y-auto text-xs text-slate-300 space-y-1 font-mono">
               {state.log.map((line, i) => <div key={i}>{line}</div>)}
               <div ref={logEndRef} />
-            </div>
+            </div> */}
           </>
         )}
       </div>
