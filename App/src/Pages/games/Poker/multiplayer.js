@@ -6,8 +6,6 @@
 import Peer from "peerjs";
 import { getIceServers, generateRoomId } from "../../tools/tk-shared.jsx";
 
-const MAX_GUEST_SEATS = 5; // seats 1..5 — seat 0 is always the host's own
-
 // Strips anything a guest shouldn't be able to read straight off the wire:
 // the undealt deck (no one but the host ever needs it) and every other seat's
 // hole cards, unless that seat is genuinely revealed at showdown. This is the
@@ -81,8 +79,10 @@ export function broadcastState(connections, state) {
   }
 }
 
-export function nextOpenSeat(connections) {
-  for (let seat = 1; seat <= MAX_GUEST_SEATS; seat++) {
+// `seatCount` is the table's current total size (state.players.length) — seat
+// 0 is always the host's own, so guests fill seats 1..seatCount-1.
+export function nextOpenSeat(connections, seatCount) {
+  for (let seat = 1; seat < seatCount; seat++) {
     if (!connections.has(seat)) return seat;
   }
   return -1;

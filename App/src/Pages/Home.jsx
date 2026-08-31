@@ -42,7 +42,7 @@ const Home = () => {
               <div className="animate-custom-bounce custom-bounce w-4/5 block ml-auto mr-auto max-w-sm">
                 <div className="my-8">
                   <p className="text-7xl font-thin text-lime-50">ANIK SAHA</p>
-                  <p className="text-2xl text-teal-600">FULL-STACK DEVELOPER</p>
+                  <p className="text-2xl text-teal-600">JUNIOR SOFTWARE ENGINEER</p>
                 </div>
 
                 <img

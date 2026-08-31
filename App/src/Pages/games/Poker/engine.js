@@ -10,6 +10,10 @@ export const SMALL_BLIND = 10;
 export const BIG_BLIND = 20;
 
 const BOT_NAMES = ["Ava", "Bo", "Cleo", "Dex", "Ellie"];
+export const MIN_SEATS = 2;
+export const MAX_SEATS = 6;
+
+function randomPersonality() { return { looseness: 0.25 + Math.random() * 0.5, aggression: 0.25 + Math.random() * 0.5 }; }
 
 function makeDeck() {
   const deck = [];
@@ -26,12 +30,12 @@ function shuffle(arr) {
   return a;
 }
 
-export function createInitialState() {
-  const randomPersonality = () => ({ looseness: 0.25 + Math.random() * 0.5, aggression: 0.25 + Math.random() * 0.5 });
+export function createInitialState(seatCount = MAX_SEATS) {
+  const n = Math.min(MAX_SEATS, Math.max(MIN_SEATS, seatCount));
   const players = [
     { id: 0, name: "You", isHuman: true, stack: STARTING_STACK, personality: randomPersonality() },
     // Fixed per-bot flavor so the table doesn't feel like five copies of one bot.
-    ...BOT_NAMES.map((name, i) => ({ id: i + 1, name, isHuman: false, stack: STARTING_STACK, personality: randomPersonality() })),
+    ...BOT_NAMES.slice(0, n - 1).map((name, i) => ({ id: i + 1, name, isHuman: false, stack: STARTING_STACK, personality: randomPersonality() })),
   ];
   return {
     players: players.map(p => ({ ...p, folded: false, allIn: false, inHand: false, holeCards: [], streetBet: 0, totalContribution: 0, hasActed: false })),
@@ -41,6 +45,34 @@ export function createInitialState() {
     actingIndex: -1, dealerIndex: -1,
     handNumber: 0, log: [], result: null,
   };
+}
+
+// Lobby-only seat editing (state.handNumber === 0 / street "waiting") — adds
+// one AI-controlled seat at the end of the table, up to MAX_SEATS. Ids are
+// just array positions since no hand is in progress to have committed to them.
+export function addAiSeat(prev) {
+  const state = structuredClone(prev);
+  if (state.players.length >= MAX_SEATS) return state;
+  const usedNames = new Set(state.players.map(p => p.name));
+  const name = BOT_NAMES.find(n => !usedNames.has(n)) || `Bot ${state.players.length}`;
+  state.players.push({
+    id: state.players.length, name, isHuman: false, stack: STARTING_STACK, personality: randomPersonality(),
+    folded: false, allIn: false, inHand: false, holeCards: [], streetBet: 0, totalContribution: 0, hasActed: false,
+  });
+  return state;
+}
+
+// Removes any seat but seat 0 (the local player) — used by the host lobby to
+// shrink the table or drop a seat entirely (the caller is responsible for
+// disconnecting/kicking a human occupying it first). Re-indexes remaining
+// seats' ids to match their new array position.
+export function removeSeat(prev, seatIndex) {
+  const state = structuredClone(prev);
+  if (state.players.length <= MIN_SEATS) return state;
+  if (seatIndex === 0 || seatIndex < 0 || seatIndex >= state.players.length) return state;
+  state.players.splice(seatIndex, 1);
+  state.players = state.players.map((p, i) => ({ ...p, id: i }));
+  return state;
 }
 
 function log(state, msg) { state.log = [...state.log, msg]; }

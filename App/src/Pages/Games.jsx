@@ -11,6 +11,7 @@ import Footer from "./components/Footer";
 import CheckMate from "./games/Chess";
 import Solitaire from "./games/Solitaire";
 import Poker from "./games/Poker/Poker";
+import Battleship from "./games/Battleship/Battleship";
 
 const GAMES = [
   { id: "chess", label: "♟ CHESS", component: CheckMate, desc: "Beat the AI opponent!" },
@@ -22,7 +23,8 @@ const GAMES = [
   { id: "breakout", label: "🎮 BREAKOUT", component: Breakout, desc: "Break bricks and level up!" },
   { id: "flappy", label: "🐦 FLAPPY BIRD", component: FlappyBird, desc: "Avoid the pipes" },
   { id: "Solitaire", label: "🃏 SOLITAIRE", component: Solitaire, desc: "Play the classic card game!" },
-  { id: "poker", label: "♠️ TEXAS HOLD'EM", component: Poker, desc: "No-Limit Hold'em vs. 5 AI opponents" },
+  { id: "poker", label: "♠️ TEXAS HOLD'EM", component: Poker, desc: "No-Limit Hold'em · 2-6 players, solo or online" },
+  { id: "battleship", label: "🚢 BATTLESHIP", component: Battleship, desc: "Online PvP · dynamic board & fleet size" },
 ];
 
 const Games = () => {

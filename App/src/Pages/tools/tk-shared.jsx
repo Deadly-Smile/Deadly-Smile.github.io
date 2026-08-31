@@ -1,6 +1,7 @@
 // ── tk-shared.jsx — Shared UI primitives for all toolkit tools ────────────────
 import { useState, useEffect, useRef } from "react";
 import jsQR from "jsqr";
+import Peer from "peerjs";
 
 // Used when /api/turn-credentials is unreachable or not configured (e.g. local dev).
 // Multiple STUN servers add redundancy, but STUN alone can't traverse symmetric NAT
@@ -71,6 +72,60 @@ export async function fetchOpenRooms(tool) {
 }
 
 export const generateRoomId = () => Math.random().toString(36).slice(2, 8).toUpperCase();
+
+// ─── Generic 1:1 PeerJS room ────────────────────────────────────────────────
+// Shared by any strictly-two-player P2P game (Chess online, Battleship) that
+// doesn't need Poker's multi-seat host-authoritative/redacted-broadcast model
+// — just one host, one guest, one DataConnection. Mirrors the shape of
+// Poker/multiplayer.js's hostRoom/joinRoomAsClient, but caps the room at a
+// single guest instead of exposing a seat count.
+export async function hostSimpleRoom({ onJoin, onAction, onLeave, onError }) {
+  const iceServers = await getIceServers();
+  const peer = new Peer(generateRoomId(), { config: { iceServers } });
+  let occupied = false;
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    peer.on("open", (roomId) => {
+      settled = true;
+      peer.on("connection", (conn) => {
+        if (occupied) { conn.send({ type: "full" }); conn.close(); return; }
+        occupied = true;
+        conn.on("data", (msg) => {
+          if (msg?.type === "hello") onJoin(conn, msg.name);
+          else onAction(conn, msg);
+        });
+        conn.on("close", () => { occupied = false; onLeave(conn); });
+        conn.on("error", () => { occupied = false; onLeave(conn); });
+      });
+      resolve({ peer, roomId });
+    });
+    peer.on("error", (e) => { if (!settled) reject(e); else onError?.(e); });
+  });
+}
+
+// Joins a hostSimpleRoom by code. Resolves once the data connection is open;
+// the host is echoed the caller's display name via a "hello" message.
+export async function joinSimpleRoom(roomId, name, { onMessage, onClose, onError }) {
+  const iceServers = await getIceServers();
+  const peer = new Peer(undefined, { config: { iceServers } });
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    peer.on("open", () => {
+      const conn = peer.connect(roomId, { reliable: true });
+      conn.on("open", () => {
+        settled = true;
+        conn.send({ type: "hello", name });
+        resolve({ peer, conn });
+      });
+      conn.on("data", onMessage);
+      conn.on("close", () => onClose?.());
+      conn.on("error", (e) => { if (!settled) reject(e); else onError?.(e); });
+    });
+    peer.on("error", (e) => { if (!settled) reject(e); });
+  });
+}
 
 export function buildQrUrl(data, size = 200) {
   return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(data)}`;

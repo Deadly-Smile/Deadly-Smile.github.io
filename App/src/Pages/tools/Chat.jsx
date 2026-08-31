@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import Peer from "peerjs";
+import {
+  FaPhone, FaPhoneSlash, FaVideo, FaVideoSlash,
+  FaMicrophone, FaMicrophoneSlash, FaDesktop,
+} from "react-icons/fa";
 import { getIceServers, generateRoomId, buildQrUrl, registerOpenRoom, unregisterOpenRoom, fetchOpenRooms } from "./tk-shared.jsx";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
@@ -322,11 +326,34 @@ export default function P2PChat() {
   const [openRooms, setOpenRooms] = useState([]);
   const [roomsLoading, setRoomsLoading] = useState(false);
 
+  // ─── Calling (audio/video/screen-share) ──────────────────────────────────
+  const [callState, setCallState] = useState("idle"); // idle | outgoing | incoming | active
+  const [callType, setCallType] = useState("audio");  // audio | video
+  const [isMuted, setIsMuted] = useState(false);
+  const [isCameraOff, setIsCameraOff] = useState(false);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [isRemoteScreenSharing, setIsRemoteScreenSharing] = useState(false);
+  const canScreenShare = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
+
   const peerRef = useRef(null);
   const connRef = useRef(null);
   const messagesEndRef = useRef(null);
   const incomingTransfersRef = useRef(new Map());
   const roomHeartbeatRef = useRef(null);
+
+  const callRef = useRef(null);           // active PeerJS MediaConnection
+  const incomingCallRef = useRef(null);   // MediaConnection awaiting accept/decline
+  const localStreamRef = useRef(null);
+  const localVideoRef = useRef(null);        // local camera preview
+  const localScreenVideoRef = useRef(null);  // local outgoing-screen preview
+  const remoteVideoRef = useRef(null);       // remote camera (or the lone <audio> for voice calls)
+  const remoteScreenVideoRef = useRef(null); // remote peer's shared screen, if any
+  const screenShareRef = useRef(null);       // { screenStream, screenTrack, sender } while sharing
+  // A call's first "stream" event is always the camera/mic; PeerJS fires one
+  // "stream" event per remote MediaStream, so a second one occurring later in
+  // the same call can only be a screen share added via addTrack afterwards —
+  // no need to correlate stream ids across the data channel to tell them apart.
+  const primaryStreamReceivedRef = useRef(false);
 
   // Manual only — no polling interval, so sitting idle on the home screen
   // doesn't keep hammering the directory endpoint.
@@ -348,11 +375,151 @@ export default function P2PChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, peerTyping]);
 
+  // ─── Calling ──────────────────────────────────────────────────────────────
+  // Layers a PeerJS MediaConnection on top of the existing DataConnection's
+  // Peer instance/ICE config — no extra signaling needed. The callee always
+  // sees an incoming-call prompt first; `call.answer()` only ever runs after
+  // they explicitly accept.
+  const endCall = useCallback(() => {
+    callRef.current?.close();
+    localStreamRef.current?.getTracks().forEach(t => t.stop());
+    screenShareRef.current?.screenTrack.stop();
+    callRef.current = null;
+    incomingCallRef.current = null;
+    localStreamRef.current = null;
+    screenShareRef.current = null;
+    primaryStreamReceivedRef.current = false;
+    if (localVideoRef.current) localVideoRef.current.srcObject = null;
+    if (localScreenVideoRef.current) localScreenVideoRef.current.srcObject = null;
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+    if (remoteScreenVideoRef.current) remoteScreenVideoRef.current.srcObject = null;
+    setCallState("idle");
+    setIsMuted(false); setIsCameraOff(false); setIsScreenSharing(false); setIsRemoteScreenSharing(false);
+  }, []);
+
+  // Runs after the call panel's DOM actually mounts/changes — assigns the
+  // local preview from the ref (not state) since getUserMedia is fetched
+  // imperatively in startCall/acceptCall, not stored as render state.
+  useEffect(() => {
+    if (localVideoRef.current && localStreamRef.current) localVideoRef.current.srcObject = localStreamRef.current;
+  }, [callState, callType]);
+
+  const wireCall = useCallback((call) => {
+    callRef.current = call;
+    primaryStreamReceivedRef.current = false;
+    call.on("stream", (remoteStream) => {
+      if (!primaryStreamReceivedRef.current) {
+        primaryStreamReceivedRef.current = true;
+        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
+        setCallState("active");
+      } else if (remoteScreenVideoRef.current) {
+        remoteScreenVideoRef.current.srcObject = remoteStream;
+      }
+    });
+    call.on("close", endCall);
+    call.on("error", endCall);
+  }, [endCall]);
+
+  // Local <video>/<audio> preview is wired via the effect below rather than
+  // right here — at this exact line the call panel (which the preview
+  // element lives in) hasn't necessarily mounted yet, so the ref can still
+  // be null the instant the stream arrives.
+  const startCall = async (video) => {
+    if (!connRef.current?.open || callState !== "idle") return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video });
+      localStreamRef.current = stream;
+      setCallType(video ? "video" : "audio");
+      setCallState("outgoing");
+      wireCall(peerRef.current.call(connRef.current.peer, stream, { metadata: { video } }));
+    } catch (e) {
+      setStatusMsg("Could not access camera/microphone: " + e.message);
+    }
+  };
+
+  const acceptCall = async () => {
+    const call = incomingCallRef.current;
+    if (!call) return;
+    try {
+      const video = callType === "video";
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video });
+      localStreamRef.current = stream;
+      setCallState("outgoing"); // "connecting" in spirit — mounts the call panel before the remote stream can arrive
+      call.answer(stream);
+      wireCall(call);
+    } catch (e) {
+      setStatusMsg("Could not access camera/microphone: " + e.message);
+      call.close();
+      incomingCallRef.current = null;
+      setCallState("idle");
+    }
+  };
+
+  const declineCall = () => {
+    incomingCallRef.current?.close();
+    incomingCallRef.current = null;
+    setCallState("idle");
+  };
+
+  const toggleMute = () => {
+    const track = localStreamRef.current?.getAudioTracks()[0];
+    if (!track) return;
+    track.enabled = !track.enabled;
+    setIsMuted(!track.enabled);
+  };
+
+  const toggleCamera = () => {
+    const track = localStreamRef.current?.getVideoTracks()[0];
+    if (!track) return;
+    track.enabled = !track.enabled;
+    setIsCameraOff(!track.enabled);
+  };
+
+  // Adds the screen as a *second* outgoing video track (RTCPeerConnection.
+  // addTrack) rather than replacing the camera track — so both keep flowing
+  // at once. Adding a track fires the underlying peerConnection's
+  // negotiationneeded event, which PeerJS's MediaConnection already listens
+  // for and renegotiates automatically, same as setting up the call itself.
+  // Scoped to video calls only: an audio-only call has no camera sender
+  // already established for this to layer alongside.
+  const startScreenShare = async () => {
+    if (!callRef.current || callType !== "video" || isScreenSharing) return;
+    try {
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const screenTrack = screenStream.getVideoTracks()[0];
+      const sender = callRef.current.peerConnection?.addTrack(screenTrack, screenStream);
+      screenShareRef.current = { screenStream, screenTrack, sender };
+      screenTrack.onended = () => stopScreenShare(); // user hit the browser's built-in "Stop sharing"
+      if (localScreenVideoRef.current) localScreenVideoRef.current.srcObject = screenStream;
+      connRef.current?.send({ type: "call-meta", sharingScreen: true });
+      setIsScreenSharing(true);
+    } catch (e) {
+      setStatusMsg("Could not start screen share: " + e.message);
+    }
+  };
+
+  const stopScreenShare = () => {
+    const shared = screenShareRef.current;
+    if (!shared) return;
+    if (shared.sender) callRef.current?.peerConnection?.removeTrack(shared.sender);
+    shared.screenTrack.stop();
+    screenShareRef.current = null;
+    if (localScreenVideoRef.current) localScreenVideoRef.current.srcObject = null;
+    connRef.current?.send({ type: "call-meta", sharingScreen: false });
+    setIsScreenSharing(false);
+  };
+
   const setupConn = useCallback((conn, asHost) => {
     conn.on("open", () => { if (!asHost) setView("chat"); setStatusMsg(""); });
 
     conn.on("data", (data) => {
       if (data.type === "typing") { setPeerTyping(data.value); return; }
+
+      if (data.type === "call-meta") {
+        setIsRemoteScreenSharing(!!data.sharingScreen);
+        if (!data.sharingScreen && remoteScreenVideoRef.current) remoteScreenVideoRef.current.srcObject = null;
+        return;
+      }
 
       if (data.type === "delivered") {
         setMessages(prev => prev.map(m => m.id === data.id ? { ...m, delivered: true } : m));
@@ -391,9 +558,9 @@ export default function P2PChat() {
       conn.send({ type: "delivered", id: msgId });
     });
 
-    conn.on("close", () => { setStatusMsg("Connection closed."); setView("home"); setMessages([]); });
+    conn.on("close", () => { endCall(); setStatusMsg("Connection closed."); setView("home"); setMessages([]); });
     conn.on("error", (e) => setStatusMsg("Error: " + e.message));
-  }, []);
+  }, [endCall]);
 
   // Stops announcing this room in the open-room directory — called once a peer
   // connects (it's no longer "open") or the host leaves before anyone joins.
@@ -419,6 +586,11 @@ export default function P2PChat() {
       stopRoomHeartbeat(peerRef.current?.id);
       connRef.current = conn; setupConn(conn, true); setView("chat");
     });
+    peer.on("call", (call) => {
+      incomingCallRef.current = call;
+      setCallType(call.metadata?.video ? "video" : "audio");
+      setCallState("incoming");
+    });
     peer.on("error", (e) => setStatusMsg("Error: " + e.message));
   };
 
@@ -433,6 +605,11 @@ export default function P2PChat() {
       const conn = peer.connect(roomId, { reliable: true });
       connRef.current = conn;
       setupConn(conn, false);
+    });
+    peer.on("call", (call) => {
+      incomingCallRef.current = call;
+      setCallType(call.metadata?.video ? "video" : "audio");
+      setCallState("incoming");
     });
     peer.on("error", (e) => setStatusMsg("Error: " + e.message));
   };
@@ -479,6 +656,7 @@ export default function P2PChat() {
   }, []);
 
   const disconnect = () => {
+    endCall(); // never leave a hot mic/camera running behind a closed chat
     stopRoomHeartbeat(peerRef.current?.id);
     connRef.current?.close();
     peerRef.current?.destroy();
@@ -601,15 +779,81 @@ export default function P2PChat() {
       <style>{globalStyles}</style>
 
       <div style={s.chatHeader}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
           <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--tk-accent)", flexShrink: 0 }} />
-          <div>
+          <div style={{ minWidth: 0 }}>
             <p style={{ margin: 0, fontWeight: 500, fontSize: 14 }}>Room · {myId}</p>
             <p style={{ margin: 0, fontSize: 11, color: "var(--tk-text-dim)" }}>End-to-end encrypted · files up to 20 MB</p>
           </div>
         </div>
-        <button style={s.btnDanger} onClick={disconnect}>Leave</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          {callState === "idle" && (
+            <>
+              <button style={s.iconBtn} title="Voice call" onClick={() => startCall(false)}><FaPhone size={14} /></button>
+              <button style={s.iconBtn} title="Video call" onClick={() => startCall(true)}><FaVideo size={14} /></button>
+            </>
+          )}
+          <button style={s.btnDanger} onClick={disconnect}>Leave</button>
+        </div>
       </div>
+
+      {callState === "incoming" && (
+        <div style={s.callBanner}>
+          <span style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+            {callType === "video" ? <FaVideo /> : <FaPhone />} Incoming {callType} call…
+          </span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={s.btnPrimary} onClick={acceptCall}><FaPhone size={13} /> Accept</button>
+            <button style={s.btnDanger} onClick={declineCall}><FaPhoneSlash size={13} /> Decline</button>
+          </div>
+        </div>
+      )}
+
+      {(callState === "outgoing" || callState === "active") && (
+        <div style={s.callPanel}>
+          {callState === "outgoing" && <p style={{ margin: "0 0 8px", fontSize: 13, color: "var(--tk-text-dim)" }}>Connecting…</p>}
+          {callType === "video" && (
+            <div style={s.videoStage}>
+              {/* Both remote elements stay mounted for the whole call so their refs
+                  exist the instant a "stream" event fires — only their visibility
+                  toggles with whether the peer is currently sharing their screen. */}
+              <video ref={remoteScreenVideoRef} autoPlay playsInline style={{ ...s.remoteVideo, display: isRemoteScreenSharing ? "block" : "none" }} />
+              <video ref={remoteVideoRef} autoPlay playsInline style={{ ...s.remoteVideo, display: isRemoteScreenSharing ? "none" : "block" }} />
+              <video ref={localVideoRef} autoPlay playsInline muted style={s.localVideo} />
+              <video ref={localScreenVideoRef} autoPlay playsInline muted style={{ ...s.localVideo, ...s.localScreenThumb, display: isScreenSharing ? "block" : "none" }} />
+            </div>
+          )}
+          {callType === "audio" && (
+            <>
+              {/* Not rendered visually — carries the remote audio track. Mounted for
+                  the whole outgoing→active lifecycle so the ref exists the moment
+                  the "stream" event actually arrives. */}
+              <audio ref={remoteVideoRef} autoPlay style={{ display: "none" }} />
+              {callState === "active" && <p style={{ margin: "0 0 4px", fontSize: 13, color: "var(--tk-text)", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}><FaPhone size={12} /> Voice call connected</p>}
+            </>
+          )}
+          <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 8 }}>
+            <button style={s.iconBtn} title={isMuted ? "Unmute" : "Mute"} onClick={toggleMute}>
+              {isMuted ? <FaMicrophoneSlash size={14} /> : <FaMicrophone size={14} />}
+            </button>
+            {callType === "video" && (
+              <button style={s.iconBtn} title={isCameraOff ? "Turn camera on" : "Turn camera off"} onClick={toggleCamera}>
+                {isCameraOff ? <FaVideoSlash size={14} /> : <FaVideo size={14} />}
+              </button>
+            )}
+            {callType === "video" && canScreenShare && (
+              <button
+                style={{ ...s.iconBtn, ...(isScreenSharing ? s.iconBtnActive : null) }}
+                title={isScreenSharing ? "Stop sharing your screen" : "Share your screen"}
+                onClick={isScreenSharing ? stopScreenShare : startScreenShare}
+              >
+                <FaDesktop size={14} />
+              </button>
+            )}
+            <button style={s.btnDanger} onClick={endCall}><FaPhoneSlash size={13} /> Hang up</button>
+          </div>
+        </div>
+      )}
 
       <div style={s.messageArea}>
         {messages.length === 0 && (
@@ -656,6 +900,26 @@ const s = {
     padding: "12px 16px", borderBottom: "0.5px solid var(--tk-border)",
   },
   messageArea: { flex: 1, overflowY: "auto", padding: "12px 16px", display: "flex", flexDirection: "column" },
+  callBanner: {
+    display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10,
+    padding: "10px 16px", background: "var(--tk-surface2)", borderBottom: "0.5px solid var(--tk-border)",
+  },
+  callPanel: {
+    padding: "12px 16px", borderBottom: "0.5px solid var(--tk-border)",
+    background: "var(--tk-surface2)", textAlign: "center",
+  },
+  videoStage: {
+    position: "relative", width: "100%", maxWidth: 380, aspectRatio: "4/3", margin: "0 auto",
+    background: "#000", borderRadius: 10, overflow: "hidden",
+  },
+  remoteVideo: { width: "100%", height: "100%", objectFit: "cover" },
+  localVideo: {
+    position: "absolute", bottom: 8, right: 8, width: "28%", aspectRatio: "4/3",
+    objectFit: "cover", borderRadius: 8, border: "1.5px solid rgba(255,255,255,0.6)",
+  },
+  // Second local PiP (own outgoing screen share) — opposite corner from the
+  // camera preview so both can show at once.
+  localScreenThumb: { bottom: "auto", right: "auto", top: 8, left: 8, border: "1.5px solid rgba(110,231,183,0.85)" },
   inputBar: { display: "flex", gap: 8, alignItems: "flex-end", padding: "10px 12px", borderTop: "0.5px solid var(--tk-border)" },
   stagePreview: {
     display: "flex", alignItems: "center", gap: 10, padding: "8px 12px",
@@ -669,8 +933,9 @@ const s = {
     fontSize: 14, outline: "none", background: "var(--tk-surface2)", color: "var(--tk-text)",
     fontFamily: "inherit", resize: "none", maxHeight: 120, lineHeight: 1.4,
   },
-  btnPrimary: { padding: "9px 18px", borderRadius: 9, border: "none", background: "var(--tk-accent)", color: "var(--tk-bg)", fontSize: 14, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" },
+  btnPrimary: { display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 18px", borderRadius: 9, border: "none", background: "var(--tk-accent)", color: "var(--tk-bg)", fontSize: 14, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" },
   btnOutline: { padding: "9px 18px", borderRadius: 9, border: "0.5px solid var(--tk-border-bright)", background: "transparent", color: "var(--tk-text)", fontSize: 14, cursor: "pointer", whiteSpace: "nowrap" },
-  btnDanger: { padding: "6px 12px", borderRadius: 8, border: "0.5px solid var(--tk-accent2)", background: "transparent", color: "var(--tk-accent2)", fontSize: 13, cursor: "pointer" },
-  iconBtn: { padding: "6px 10px", borderRadius: 8, border: "0.5px solid var(--tk-border-bright)", background: "var(--tk-surface2)", color: "var(--tk-text)", fontSize: 16, cursor: "pointer", lineHeight: 1 },
+  btnDanger: { display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: "0.5px solid var(--tk-accent2)", background: "transparent", color: "var(--tk-accent2)", fontSize: 13, cursor: "pointer" },
+  iconBtn: { display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "6px 10px", borderRadius: 8, border: "0.5px solid var(--tk-border-bright)", background: "var(--tk-surface2)", color: "var(--tk-text)", fontSize: 16, cursor: "pointer", lineHeight: 1 },
+  iconBtnActive: { background: "var(--tk-accent)", color: "var(--tk-bg)", borderColor: "var(--tk-accent)" },
 };
