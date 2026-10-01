@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
-import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { navigate, useSearchParams, useDocumentTitle } from "../Utils/router";
+import { Link, Redirect } from "../Utils/Link";
+import { KeepAliveSlot } from "../Utils/KeepAlive";
 import "../toolkit.css";
 
 import JsonTool        from "./tools/JsonTool";
@@ -53,12 +55,12 @@ const ALL_TOOLS = [
   { id: "csv",    label: "CSV / TSV",   icon: "📑", component: CSVTSVConverter    },
   { id: "pass",   label: "Password",    icon: "🔒", component: PasswordGenerator  },
   { id: "text_extractor",    label: "Text Extractor",  icon: "📃", component: TextExtractor },
-  { id: "chat",   label: "P2P Chat",    icon: "💬", component: P2PChat            },
+  { id: "chat",   label: "P2P Chat",    icon: "💬", component: P2PChat, keepAlive: true },
   { id: "image",  label: "Image Editor", icon: "🖼️", component: ImageEditorTool   },
   { id: "input_checker", label: "Tester", icon: "🎮", component: InputDeviceChecker },
   { id: "csv_editor", label: "CSV Editor", icon: "📊", component: CSVEditor },
   { id: "practice", label: "Practice", icon: "🧩", component: PracticeTool },
-  { id: "music_player", label: "Music Player", icon: "🎵", component: MusicPlayer },
+  { id: "music_player", label: "Music Player", icon: "🎵", component: MusicPlayer, keepAlive: true },
   { id: "question_bank", label: "Question Bank", icon: "📚", component: QuestionBank }
 ];
 
@@ -228,17 +230,31 @@ function ToolLauncher({ config, onPick }) {
 
 // ─── Toolz ────────────────────────────────────────────────────────────────────
 
-const Toolz = ({ embedded = false }) => {
-  const [searchParams] = useSearchParams();
-  const [active,       setActive]       = useState(() => {
-    const tool = searchParams.get("tool");
-    return tool && ALL_TOOLS.some(t => t.id === tool) ? tool : null;
-  });
+// The active tool lives in the URL: /toolz/:toolId as a page, or ?tool= when
+// embedded in the WhiteBoard (which owns the path there).
+const Toolz = ({ embedded = false, toolId = null }) => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requested = embedded ? searchParams.get("tool") : toolId;
+  const active = requested && ALL_TOOLS.some(t => t.id === requested) ? requested : null;
   const [drawerOpen,   setDrawerOpen]   = useState(false);
   const [clock,        setClock]        = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [config,       setConfig]       = useState(loadConfig);
-  const navigate = useNavigate();
+
+  function setActive(id) {
+    if (embedded) {
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        if (id) next.set("tool", id); else next.delete("tool");
+        return next;
+      }, { replace: true });
+    } else {
+      navigate(id ? `/toolz/${id}` : "/toolz");
+    }
+  }
+
+  const activeLabel = ALL_TOOLS.find(t => t.id === active)?.label;
+  useDocumentTitle(embedded ? null : activeLabel ? `${activeLabel} · Toolz` : "Toolz");
 
   useEffect(() => {
     const tick = () => setClock(new Date().toTimeString().slice(0, 8));
@@ -275,7 +291,10 @@ const Toolz = ({ embedded = false }) => {
     }
   }
 
-  const ActiveTool = ALL_TOOLS.find(t => t.id === active)?.component;
+  const activeEntry = ALL_TOOLS.find(t => t.id === active);
+  const ActiveTool = activeEntry?.component;
+
+  if (!embedded && requested && !active) return <Redirect to="/toolz" />;
 
   // Strip components from tool list — ToolGroupSettings doesn't need them
   const toolMeta = ALL_TOOLS.map(({ id, label }) => ({ id, label }));
@@ -318,7 +337,11 @@ const Toolz = ({ embedded = false }) => {
         )}
       </div>
       <div className="tk-tool-section">
-        {ActiveTool ? <ActiveTool /> : <ToolLauncher config={config} onPick={pickTool} />}
+        {/* keepAlive tools stay mounted at the app root once opened (see
+            Utils/KeepAlive.jsx), so they keep running after switching away. */}
+        {activeEntry?.keepAlive
+          ? <KeepAliveSlot key={active} id={`tool:${active}`} element={<ActiveTool />} />
+          : ActiveTool ? <ActiveTool key={active} /> : <ToolLauncher config={config} onPick={pickTool} />}
       </div>
     </main>
   );

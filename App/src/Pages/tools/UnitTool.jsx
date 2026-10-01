@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useRef } from "react";
 import { CopyBtn } from "./tk-shared";
+import { usePersistentState } from "../../Utils/usePersistentState";
 
 const CATS={
   length:{units:["m","km","cm","mm","mi","yd","ft","in","nm","μm"],toBase:{m:1,km:1000,cm:0.01,mm:0.001,mi:1609.34,yd:0.9144,ft:0.3048,in:0.0254,nm:1e-9,"μm":1e-6}},
@@ -15,20 +16,19 @@ function convert(val,from,to,cat){
 }
 
 export default function UnitTool() {
-  const [catKey,setCatKey]=useState("length");
-  const [val,setVal]=useState("1");
-  const [from,setFrom]=useState("m");
-  const [to,setTo]=useState("km");
-  const cat=CATS[catKey];
+  const [catKey,setCatKey]=usePersistentState("tool:unit:category","length");
+  const [val,setVal]=usePersistentState("tool:unit:value","1");
+  const [from,setFrom]=usePersistentState("tool:unit:from","m");
+  const [to,setTo]=usePersistentState("tool:unit:to","km");
+  const cat=CATS[catKey]||CATS.length;
   const result=convert(parseFloat(val),from,to,cat);
   const resRef=useRef("");resRef.current=String(result);
-  useEffect(()=>{setFrom(cat.units[0]);setTo(cat.units[1]);},[catKey]);
   return(
     <div>
       <div className="tk-tool-header"><h2 className="tk-tool-title">Unit Converter</h2></div>
       <div className="tk-unit-tabs">
         {Object.keys(CATS).map(k=>(
-          <button key={k} className={`tk-unit-tab${catKey===k?" tk-active":""}`} onClick={()=>setCatKey(k)}>
+          <button key={k} className={`tk-unit-tab${catKey===k?" tk-active":""}`} onClick={()=>{setCatKey(k);setFrom(CATS[k].units[0]);setTo(CATS[k].units[1]);}}>
             {k.charAt(0).toUpperCase()+k.slice(1)}
           </button>
         ))}

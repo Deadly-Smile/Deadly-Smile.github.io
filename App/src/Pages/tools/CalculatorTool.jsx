@@ -1,12 +1,15 @@
 import { useState, useRef } from 'react';
 import { evaluate } from 'mathjs';
 import { CopyBtn, ActionBtn, StatusBar } from './tk-shared';
+import { usePersistentState } from '../../Utils/usePersistentState';
 
 export default function CalculatorTool() {
-  const [expression, setExpression] = useState('');
+  const [expression, setExpression] = usePersistentState('tool:calc:expression', '');
   const [result, setResult] = useState(null);
   const [status, setStatus] = useState({ msg: "Ready.", type: "" });
-  const [history, setHistory] = useState([]);
+  // History keeps results pre-formatted: mathjs values (units, matrices) don't
+  // survive a JSON round-trip, and formatResult(string) renders them unchanged.
+  const [history, setHistory] = usePersistentState('tool:calc:history', []);
   const resultRef = useRef("");
 
   const calculateResult = () => {
@@ -20,7 +23,7 @@ export default function CalculatorTool() {
       setResult(calculatedResult);
       resultRef.current = formatResult(calculatedResult);
       setHistory([
-        { expression, result: calculatedResult },
+        { expression, result: formatResult(calculatedResult) },
         ...history.slice(0, 9)
       ]);
       setStatus({ msg: "✓ Calculated", type: "ok" });

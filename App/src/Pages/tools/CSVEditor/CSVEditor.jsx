@@ -18,6 +18,7 @@ import FormulaBar from './FormulaBar.jsx';
 import FindReplace from './FindReplace.jsx';
 import Grid from './Grid.jsx';
 import styles from './CSVEditor.module.css';
+import { usePersistentState } from '../../../Utils/usePersistentState';
 
 const SUPPORTED_EXTS = /\.(csv|tsv|txt|xlsx|xls|ods)$/i;
 const XLSX_EXTS = /\.(xlsx|xls|ods)$/i;
@@ -99,7 +100,10 @@ export default function CSVEditor({ initialData, onSave, className }) {
   const [exportMode, setExportMode] = useState(null); // null | 'csv' | 'xlsx'
   const [chartOpen, setChartOpen] = useState(false);
   const [namedRangesOpen, setNamedRangesOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('csv-editor-dark') === '1');
+  // Migrates the legacy unguarded 'csv-editor-dark' key on first load.
+  const [darkMode, setDarkMode] = usePersistentState('tool:csv_editor:dark', () => {
+    try { return localStorage.getItem('csv-editor-dark') === '1'; } catch { return false; }
+  });
   const [helpOpen, setHelpOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [savedAt, setSavedAt] = useState(null);
@@ -395,10 +399,7 @@ export default function CSVEditor({ initialData, onSave, className }) {
     : null;
 
   const toggleDark = () => {
-    setDarkMode((v) => {
-      localStorage.setItem('csv-editor-dark', v ? '0' : '1');
-      return !v;
-    });
+    setDarkMode((v) => !v);
   };
 
   return (

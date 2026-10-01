@@ -2,6 +2,8 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { Stage, Layer, Line, Rect, Arrow, Text } from "react-konva";
 import { HexColorPicker } from "react-colorful";
 import Toolz from "./Toolz";
+import { useDocumentTitle } from "../Utils/router";
+import { usePersistentState } from "../Utils/usePersistentState";
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 const Icon = ({ d, size = 18 }) => (
@@ -145,22 +147,26 @@ const ToolkitDrawer = ({ open, onClose }) => {
 // ── WhiteBoard ─────────────────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
 const WhiteBoard = () => {
+  useDocumentTitle("Whiteboard");
   const stageRef     = useRef(null);
   const containerRef = useRef(null);
 
   const [size, setSize]               = useState({ w: window.innerWidth, h: window.innerHeight });
-  const [tool, setTool]               = useState("pen");
-  const [color, setColor]             = useState("#1a1a2e");
-  const [strokeWidth, setStrokeWidth] = useState(3);
-  const [opacity, setOpacity]         = useState(1);
+  // Drawing + tool settings survive leaving the page; pickers, the in-progress
+  // text box and undo history don't (history restarts at the restored drawing).
+  const [tool, setTool]               = usePersistentState("whiteboard:tool", "pen");
+  const [color, setColor]             = usePersistentState("whiteboard:color", "#1a1a2e");
+  const [strokeWidth, setStrokeWidth] = usePersistentState("whiteboard:strokeWidth", 3);
+  const [opacity, setOpacity]         = usePersistentState("whiteboard:opacity", 1);
   const [showPicker, setShowPicker]   = useState(false);
   const [showWidthPicker, setShowWidthPicker] = useState(false);
-  const [showGrid, setShowGrid]       = useState(false);
-  const [canvasColor, setCanvasColor] = useState("#f8f5f0");
+  const [showGrid, setShowGrid]       = usePersistentState("whiteboard:showGrid", false);
+  const [canvasColor, setCanvasColor] = usePersistentState("whiteboard:canvasColor", "#f8f5f0");
   const [toolkitOpen, setToolkitOpen] = useState(false);
 
-  const [elements, setElements] = useState([]);
-  const [history, setHistory]   = useState([[]]);
+  const [storedElements, setElements] = usePersistentState("whiteboard:elements", []);
+  const elements = Array.isArray(storedElements) ? storedElements : [];
+  const [history, setHistory]   = useState(() => [elements]);
   const [histIdx, setHistIdx]   = useState(0);
   const isDrawing = useRef(false);
 
@@ -168,7 +174,11 @@ const WhiteBoard = () => {
   const [textValue, setTextValue] = useState("");
   const textareaRef = useRef(null);
 
-  const [stickies, setStickies]   = useState([]);
+  const [storedStickies, setStickies] = usePersistentState("whiteboard:stickies", []);
+  const stickies = Array.isArray(storedStickies) ? storedStickies : [];
+  // Self-heal corrupt stored data so functional updaters always see arrays.
+  useEffect(() => { if (!Array.isArray(storedElements)) setElements([]); }, [storedElements, setElements]);
+  useEffect(() => { if (!Array.isArray(storedStickies)) setStickies([]); }, [storedStickies, setStickies]);
   const [showStickyPalette, setShowStickyPalette] = useState(false);
 
   // ── Resize ──────────────────────────────────────────────────────────────────
@@ -187,12 +197,12 @@ const WhiteBoard = () => {
   const undo = useCallback(() => {
     if (histIdx===0) return;
     const i = histIdx-1; setHistIdx(i); setElements(history[i]);
-  }, [histIdx, history]);
+  }, [histIdx, history, setElements]);
 
   const redo = useCallback(() => {
     if (histIdx>=history.length-1) return;
     const i = histIdx+1; setHistIdx(i); setElements(history[i]);
-  }, [histIdx, history]);
+  }, [histIdx, history, setElements]);
 
   // ── Keyboard ─────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -208,7 +218,7 @@ const WhiteBoard = () => {
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [undo, redo]);
+  }, [undo, redo, setTool]);
 
   // ── Click-outside dropdowns ───────────────────────────────────────────────────
   useEffect(() => {

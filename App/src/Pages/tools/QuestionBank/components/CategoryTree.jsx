@@ -1,188 +1,102 @@
 import { useState } from "react";
-import { addCategory, renameCategory, deleteCategory, buildCategoryTree } from "../db";
-import { ConfirmModal } from "../../../../Utils/Modal";
 
-function TreeNode({ node, selectedId, onSelect, expanded, onToggle, onRefresh, onRequestDelete }) {
-  const [renaming, setRenaming] = useState(false);
-  const [renameValue, setRenameValue] = useState(node.name);
-  const [addingChild, setAddingChild] = useState(false);
-  const [childName, setChildName] = useState("");
+// Read-only category navigator. Counts include sub-categories; empty
+// branches are hidden unless showEmpty is on (most of the ~600 categories
+// have no questions yet).
+
+function initiallyExpanded(tree, selectedId) {
+  // Open the path down to the selected category so it's visible on load.
+  const open = new Set();
+  function walk(nodes, path) {
+    for (const node of nodes) {
+      if (node.id === selectedId) { path.forEach(id => open.add(id)); return true; }
+      if (walk(node.children, [...path, node.id])) return true;
+    }
+    return false;
+  }
+  if (selectedId != null) walk(tree, []);
+  return open;
+}
+
+function TreeNode({ node, counts, showEmpty, selectedId, onSelect, expanded, onToggle }) {
+  const visibleChildren = showEmpty ? node.children : node.children.filter(c => counts.get(c.id));
   const isOpen = expanded.has(node.id);
 
-  const commitRename = async () => {
-    const name = renameValue.trim();
-    if (name && name !== node.name) await renameCategory(node.id, name);
-    setRenaming(false);
-    onRefresh();
-  };
-
-  const commitAddChild = async () => {
-    const name = childName.trim();
-    if (name) {
-      await addCategory(name, node.id);
-      onToggle(node.id, true);
-      onRefresh();
-    }
-    setAddingChild(false);
-    setChildName("");
-  };
-
   return (
-    <div className="tk-qb-tree-node" style={{ paddingLeft: node.depth * 16 }}>
-      <div className={`tk-qb-tree-row${selectedId === node.id ? " tk-qb-tree-row--active" : ""}`}>
+    <div className="tk-qb-tree-node">
+      <div
+        className={`tk-qb-tree-row${selectedId === node.id ? " tk-qb-tree-row--active" : ""}`}
+        style={{ paddingLeft: node.depth * 14 }}
+      >
         <button
           className="tk-qb-tree-toggle"
           onClick={() => onToggle(node.id)}
-          disabled={node.children.length === 0}
+          disabled={visibleChildren.length === 0}
           aria-label={isOpen ? "Collapse" : "Expand"}
         >
-          {node.children.length > 0 ? (isOpen ? "▾" : "▸") : "·"}
+          {visibleChildren.length > 0 ? (isOpen ? "▾" : "▸") : "·"}
         </button>
-
-        {renaming ? (
-          <input
-            className="tk-qb-tree-input"
-            value={renameValue}
-            autoFocus
-            onChange={e => setRenameValue(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setRenaming(false); }}
-            onBlur={commitRename}
-          />
-        ) : (
-          <span className="tk-qb-tree-label" onClick={() => onSelect(node.id)}>{node.name}</span>
-        )}
-
-        <span className="tk-qb-tree-actions">
-          <button title="Add sub-category" onClick={() => setAddingChild(v => !v)}>+</button>
-          <button title="Rename" onClick={() => setRenaming(true)}>✎</button>
-          <button title="Delete" className="tk-qb-tree-danger" onClick={() => onRequestDelete(node)}>✕</button>
-        </span>
+        <span className="tk-qb-tree-label" onClick={() => onSelect(node.id)}>{node.name}</span>
+        <span className="tk-qb-tree-count">{counts.get(node.id) ?? 0}</span>
       </div>
-
-      {addingChild && (
-        <div className="tk-qb-tree-add-row" style={{ paddingLeft: (node.depth + 1) * 16 }}>
-          <input
-            className="tk-qb-tree-input"
-            placeholder="Sub-category name…"
-            value={childName}
-            autoFocus
-            onChange={e => setChildName(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") commitAddChild(); if (e.key === "Escape") setAddingChild(false); }}
-            onBlur={commitAddChild}
-          />
-        </div>
-      )}
-
-      {isOpen && node.children.map(child => (
+      {isOpen && visibleChildren.map(child => (
         <TreeNode
           key={child.id}
           node={child}
+          counts={counts}
+          showEmpty={showEmpty}
           selectedId={selectedId}
           onSelect={onSelect}
           expanded={expanded}
           onToggle={onToggle}
-          onRefresh={onRefresh}
-          onRequestDelete={onRequestDelete}
         />
       ))}
     </div>
   );
 }
 
-export default function CategoryTree({ categories, selectedId, onSelect, onRefresh }) {
-  const [expanded, setExpanded] = useState(new Set());
-  const [newRootName, setNewRootName] = useState("");
-  const [deleteTarget, setDeleteTarget] = useState(null); // { node, blocked info } once checked
-  const [confirming, setConfirming] = useState(false);
+export default function CategoryTree({ bank, selectedId, onSelect }) {
+  const [expanded, setExpanded] = useState(() => initiallyExpanded(bank.tree, selectedId));
+  const [showEmpty, setShowEmpty] = useState(false);
+  const roots = showEmpty ? bank.tree : bank.tree.filter(n => bank.counts.get(n.id));
 
-  const tree = buildCategoryTree(categories);
-
-  function toggle(id, forceOpen) {
+  function toggle(id) {
     setExpanded(prev => {
       const next = new Set(prev);
-      if (forceOpen || !next.has(id)) next.add(id); else next.delete(id);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   }
 
-  async function addRoot() {
-    const name = newRootName.trim();
-    if (!name) return;
-    await addCategory(name, null);
-    setNewRootName("");
-    onRefresh();
-  }
-
-  async function requestDelete(node) {
-    const result = await deleteCategory(node.id, { cascade: false });
-    if (result.blocked) {
-      setDeleteTarget({ node, ...result });
-      setConfirming(true);
-    } else {
-      if (selectedId === node.id) onSelect(null);
-      onRefresh();
-    }
-  }
-
-  async function confirmCascadeDelete() {
-    if (!deleteTarget) return;
-    await deleteCategory(deleteTarget.node.id, { cascade: true });
-    if (selectedId === deleteTarget.node.id) onSelect(null);
-    setDeleteTarget(null);
-    onRefresh();
-  }
-
   return (
     <div className="tk-qb-tree">
-      <div className="tk-qb-tree-add-row">
-        <input
-          className="tk-qb-tree-input"
-          placeholder="New top-level category…"
-          value={newRootName}
-          onChange={e => setNewRootName(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && addRoot()}
-        />
-        <button className="tk-action-btn" onClick={addRoot}>Add</button>
-      </div>
-
-      <div
-        className={`tk-qb-tree-row${selectedId === null ? " tk-qb-tree-row--active" : ""}`}
-        style={{ marginTop: 4 }}
-      >
+      <div className={`tk-qb-tree-row${selectedId === null ? " tk-qb-tree-row--active" : ""}`}>
         <button className="tk-qb-tree-toggle" disabled>·</button>
         <span className="tk-qb-tree-label" onClick={() => onSelect(null)}>All questions</span>
+        <span className="tk-qb-tree-count">{bank.questions.length}</span>
       </div>
 
-      {tree.length === 0 ? (
-        <p className="tk-qb-tree-empty">No categories yet — add one above.</p>
+      {roots.length === 0 ? (
+        <p className="tk-qb-tree-empty">No categories yet.</p>
       ) : (
-        tree.map(node => (
+        roots.map(node => (
           <TreeNode
             key={node.id}
             node={node}
+            counts={bank.counts}
+            showEmpty={showEmpty}
             selectedId={selectedId}
             onSelect={onSelect}
             expanded={expanded}
             onToggle={toggle}
-            onRefresh={onRefresh}
-            onRequestDelete={requestDelete}
           />
         ))
       )}
 
-      <ConfirmModal
-        isOpen={confirming}
-        title="Category is not empty"
-        message={deleteTarget && (
-          <>
-            "{deleteTarget.node.name}" contains {deleteTarget.categoryCount} sub-categor{deleteTarget.categoryCount === 1 ? "y" : "ies"} and{" "}
-            {deleteTarget.questionCount} question{deleteTarget.questionCount === 1 ? "" : "s"}. Delete it along with everything inside it?
-          </>
-        )}
-        onClose={() => { setConfirming(false); setDeleteTarget(null); }}
-        onConfirm={confirmCascadeDelete}
-        danger
-      />
+      <label className="tk-qb-check tk-qb-tree-footer">
+        <input type="checkbox" checked={showEmpty} onChange={e => setShowEmpty(e.target.checked)} />
+        Show empty categories
+      </label>
     </div>
   );
 }

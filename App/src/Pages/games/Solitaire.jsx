@@ -1,4 +1,5 @@
-import { useState, useCallback } from "react";
+import { useCallback } from "react";
+import { usePersistentState } from "../../Utils/usePersistentState";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const SUITS    = ["♠", "♥", "♦", "♣"];
@@ -11,6 +12,8 @@ const FACE_OFFSET = 32;  // px between face-up cards
 const BACK_OFFSET = 16;  // px between face-down cards
 const CARD_W = 76;
 const CARD_H = 104;
+
+const UNDO_LIMIT = 100;
 
 // ─── Deck helpers ─────────────────────────────────────────────────────────────
 function makeDeck() {
@@ -201,15 +204,17 @@ function Card({ card, selected, onClick, onDoubleClick }) {
 
 // ─── Main Game ────────────────────────────────────────────────────────────────
 export default function Solitaire() {
-  const [G, setG] = useState(() => initGame());
-  const [history, setHistory] = useState([]);
+  // The deal in progress (and its undo history) survives leaving the game.
+  const [G, setG] = usePersistentState("game:Solitaire:game", () => initGame());
+  const [history, setHistory] = usePersistentState("game:Solitaire:history", []);
   const { tableau, stock, waste, foundations, selected, moves } = G;
 
   const update = fn => {
     setG(prev => {
       const next = fn(prev);
       if (next.moves !== prev.moves) {
-        setHistory(h => [...h, { ...prev, selected: null }]);
+        // Capped so the persisted undo stack stays small.
+        setHistory(h => [...h, { ...prev, selected: null }].slice(-UNDO_LIMIT));
       }
       return next;
     });

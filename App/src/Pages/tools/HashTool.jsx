@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { CopySmall } from "./tk-shared";
 import { sha256Hex, sha1Hex, sha512Hex, md5Hex } from "../../Utils/hash";
+import { usePersistentState } from "../../Utils/usePersistentState";
 
 export default function HashTool() {
-  const [text,   setText]   = useState("");
+  const [text,   setText]   = usePersistentState("tool:hash:text", "");
   const [hashes, setHashes] = useState({ sha256:"—", sha1:"—", sha512:"—", md5:"—" });
   const [isMaximized, setIsMaximized] = useState(false);
   const ref = useRef({ sha256:"—", sha1:"—", sha512:"—", md5:"—" });

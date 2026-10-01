@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { usePersistentState } from "../../Utils/usePersistentState";
 
 const ANSWERS = [
   // Positive
@@ -46,8 +47,8 @@ const ANSWERS = [
 
 export default function Magic8BallTool() {
   const [isSpinning, setIsSpinning] = useState(false);
-  const [answer, setAnswer] = useState(null);
-  const [questionText, setQuestionText] = useState("");
+  const [answer, setAnswer] = usePersistentState("tool:magic:answer", null);
+  const [questionText, setQuestionText] = usePersistentState("tool:magic:question", "");
 
   const askBall = () => {
     if (isSpinning) return;

@@ -1,13 +1,14 @@
 import { useState, useRef } from 'react';
 import { CopyBtn, ActionBtn, StatusBar } from './tk-shared';
+import { usePersistentState } from '../../Utils/usePersistentState';
 
 export default function TimestampConverter() {
-  const [timestamp, setTimestamp] = useState(Math.floor(Date.now() / 1000));
-  const [humanDate, setHumanDate] = useState(new Date().toISOString());
+  const [timestamp, setTimestamp] = usePersistentState('tool:time:timestamp', () => Math.floor(Date.now() / 1000));
+  const [humanDate, setHumanDate] = usePersistentState('tool:time:humanDate', () => new Date().toISOString());
   const [result, setResult] = useState(null);
   const [status, setStatus] = useState({ msg: "Ready.", type: "" });
   const resultRef = useRef("");
-  const [activeTab, setActiveTab] = useState('unixToHuman');
+  const [activeTab, setActiveTab] = usePersistentState('tool:time:tab', 'unixToHuman');
 
   const convertUnixToHuman = (ts) => {
     const isMillis = ts > 10000000000;

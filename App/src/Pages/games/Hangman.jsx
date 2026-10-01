@@ -1,18 +1,31 @@
 import { useState, useEffect } from 'react';
 import { ActionBtn, StatusBar } from '../tools/tk-shared';
+import { usePersistentState } from '../../Utils/usePersistentState';
+
+// Pre-usePersistentState scores, carried over on first load.
+const legacyScores = () => {
+  try {
+    const s = JSON.parse(localStorage.getItem('hangmanScores'));
+    return Array.isArray(s) ? s : [];
+  } catch { return []; }
+};
 
 export default function Hangman() {
   const WORDS = ['JAVASCRIPT', 'PYTHON', 'REACT', 'DEVELOPER', 'PROGRAMMING', 'COMPUTER', 'ALGORITHM', 'DATABASE', 'NETWORK', 'BROWSER', 'CONSOLE', 'FUNCTION', 'VARIABLE', 'CONSTANT', 'OBJECT', 'ARRAY', 'STRING', 'NUMBER', 'BOOLEAN', 'INFINITY', 'TYPESCRIPT', 'FRAMEWORK', 'COMPONENT', 'INTERFACE', 'MODULE', 'PACKAGE', 'LIBRARY', 'REPOSITORY', 'COMMIT', 'BRANCH', 'MERGE', 'SYNTAX', 'COMPILER', 'DEBUGGER', 'ASYNC', 'PROMISE', 'CALLBACK', 'CLOSURE', 'PROTOTYPE', 'INHERITANCE', 'ENCAPSULATION', 'POLYMORPHISM', 'ABSTRACTION', 'EXCEPTION', 'ITERATION', 'RECURSION', 'PARAMETER', 'ARGUMENT', 'OPERATOR', 'EXPRESSION', 'STATEMENT', 'DECLARATION', 'ASSIGNMENT', 'INITIALIZER', 'VALIDATION', 'SANITIZATION', 'ENCRYPTION', 'COMPRESSION', 'OPTIMIZATION', 'REFACTORING', 'TESTING', 'DEPLOYMENT', 'KUBERNETES', 'DOCKER', 'MICROSERVICE', 'ARCHITECTURE', 'SCALABILITY', 'PERFORMANCE', 'SECURITY', 'ELEPHANT', 'MOUNTAIN', 'BUTTERFLY', 'TREASURE', 'ADVENTURE', 'LIGHTHOUSE', 'WATERMELON', 'DINOSAUR', 'RAINBOW', 'CHOCOLATE', 'ADVENTURE', 'BIRTHDAY', 'DIAMOND', 'FIREWORKS', 'GUITAR', 'HURRICANE', 'JOURNEY', 'KEYBOARD', 'LANTERN', 'MONOPOLY'];
   
-  const [word, setWord] = useState(WORDS[Math.floor(Math.random() * WORDS.length)]);
-  const [guesses, setGuesses] = useState([]);
-  const [wrong, setWrong] = useState(0);
-  const [gameOver, setGameOver] = useState(false);
-  const [won, setWon] = useState(false);
-  const [status, setStatus] = useState({ msg: "Guess letters to reveal the word", type: "" });
-  const [timeElapsed, setTimeElapsed] = useState(0);
-  const [highScores, setHighScores] = useState(() => JSON.parse(localStorage.getItem('hangmanScores')) || []);
-  const [currentScore, setCurrentScore] = useState(null);
+  // The round in progress survives leaving the game.
+  const [word, setWord] = usePersistentState('game:hangman:word', () => WORDS[Math.floor(Math.random() * WORDS.length)]);
+  const [guesses, setGuesses] = usePersistentState('game:hangman:guesses', []);
+  const [wrong, setWrong] = usePersistentState('game:hangman:wrong', 0);
+  const [gameOver, setGameOver] = usePersistentState('game:hangman:gameOver', false);
+  const [won, setWon] = usePersistentState('game:hangman:won', false);
+  const [status, setStatus] = useState(() =>
+    gameOver ? { msg: `Game Over! The word was: ${word}`, type: 'err' }
+    : won ? { msg: `✓ You won! The word was: ${word}`, type: 'ok' }
+    : { msg: "Guess letters to reveal the word", type: "" });
+  const [timeElapsed, setTimeElapsed] = usePersistentState('game:hangman:timeElapsed', 0);
+  const [highScores, setHighScores] = usePersistentState('game:hangman:highScores', legacyScores);
+  const [currentScore, setCurrentScore] = usePersistentState('game:hangman:currentScore', null);
 
   const MAX_WRONG = 6;
   const revealed = word.split('').map(letter => (guesses.includes(letter) ? letter : '_')).join(' ');
@@ -29,7 +42,7 @@ export default function Hangman() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [gameOver, won]);
+  }, [gameOver, won, setTimeElapsed]);
 
   // Calculate score based on time and difficulty
   const calculateScore = () => {
@@ -49,7 +62,6 @@ export default function Hangman() {
         .sort((a, b) => b.score - a.score)
         .slice(0, 10); // Keep top 10 scores
       setHighScores(newScores);
-      localStorage.setItem('hangmanScores', JSON.stringify(newScores));
     }
   }, [won]);
 

@@ -1,27 +1,27 @@
 import { useState, useEffect } from 'react';
 import { ActionBtn, StatusBar } from '../tools/tk-shared';
+import { usePersistentState } from '../../Utils/usePersistentState';
+
+// Pre-usePersistentState best, carried over on first load.
+const legacyBestMoves = () => {
+  try { return parseInt(localStorage.getItem('memorymatchBestMoves'), 10) || 0; } catch { return 0; }
+};
 
 export default function MemoryMatch() {
   const EMOJIS = ['🚀', '🎮', '🍕', '🎸', '🏀', '🎨', '🌙', '⚡', '🔥', '❄️', '🌊', '🎪'];
 
-  const [cards, setCards] = useState([]);
+  // The board in progress survives leaving the game; a half-flipped pair doesn't.
+  const [cards, setCards] = usePersistentState('game:memory:cards', []);
   const [flipped, setFlipped] = useState([]);
-  const [matched, setMatched] = useState([]);
-  const [moves, setMoves] = useState(0);
-  const [bestMoves, setBestMoves] = useState(0);
+  const [matched, setMatched] = usePersistentState('game:memory:matched', []);
+  const [moves, setMoves] = usePersistentState('game:memory:moves', 0);
+  const [bestMoves, setBestMoves] = usePersistentState('game:memory:bestMoves', legacyBestMoves);
   const [gameWon, setGameWon] = useState(false);
   const [status, setStatus] = useState({ msg: "Click cards to find matching pairs", type: "" });
 
   useEffect(() => {
-    initGame();
-  }, []);
-
-  // Load best moves from localStorage on mount
-  useEffect(() => {
-    const savedBestMoves = localStorage.getItem('memorymatchBestMoves');
-    if (savedBestMoves) {
-      setBestMoves(parseInt(savedBestMoves, 10));
-    }
+    if (cards.length !== EMOJIS.length * 2) initGame();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -30,11 +30,10 @@ export default function MemoryMatch() {
       // Save best moves
       if (bestMoves === 0 || moves < bestMoves) {
         setBestMoves(moves);
-        localStorage.setItem('memorymatchBestMoves', moves.toString());
       }
       setStatus({ msg: `✓ You won! Moves: ${moves}`, type: 'ok' });
     }
-  }, [matched, moves, bestMoves]);
+  }, [matched, moves, bestMoves, setBestMoves]);
 
   const initGame = () => {
     const shuffled = [...EMOJIS, ...EMOJIS].sort(() => Math.random() - 0.5);

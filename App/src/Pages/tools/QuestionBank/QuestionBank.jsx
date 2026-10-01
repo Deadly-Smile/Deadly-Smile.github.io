@@ -1,187 +1,173 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
-import { getAllCategories, getAllQuestions, getAllTags, saveQuestion, deleteQuestion, importBank, collectSubtreeIds } from "./db";
-import { downloadBankAsJson, parseBankJson } from "./export";
-import { findDuplicate, byCategoryId } from "./dedupe";
-import CategoryTree from "./components/CategoryTree";
-import QuestionForm from "./components/QuestionForm";
-import QuestionList from "./components/QuestionList";
-import OcrUpload from "./components/OcrUpload";
-import SyncPanel from "./components/SyncPanel";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePersistentState } from "../../../Utils/usePersistentState";
+import { loadCache } from "./db";
+import { syncBank } from "./sync";
+import { isRemoteConfigured } from "./remote";
+import { buildCategoryTree, countBySubtree } from "./categories";
+import { withAttempt, withFlag } from "./progress";
+import { timeAgo } from "./format";
+import BrowsePanel from "./components/BrowsePanel";
 import StudyPanel from "./components/StudyPanel";
 import ExamPanel from "./components/ExamPanel";
 import StatsPanel from "./components/StatsPanel";
 
+// Read-only question bank backed by Supabase. Questions are cached in
+// IndexedDB (db.js) and refreshed by the Sync button; personal data —
+// favorites, right/wrong records, exam history — stays in localStorage.
+
 const TABS = [
   { id: "browse", label: "Browse" },
-  { id: "add", label: "Add" },
-  { id: "import", label: "Import (OCR)" },
   { id: "study", label: "Study" },
   { id: "exam", label: "Exam" },
   { id: "stats", label: "Stats" },
-  { id: "sync", label: "Sync" },
 ];
+const HISTORY_LIMIT = 50;
+
+function buildBank({ categories, questions }) {
+  const sorted = [...questions].sort((a, b) => a.id - b.id);
+  return {
+    categories,
+    questions: sorted,
+    catById: new Map(categories.map(c => [c.id, c])),
+    questionsById: new Map(sorted.map(q => [q.id, q])),
+    counts: countBySubtree(categories, sorted),
+    tree: buildCategoryTree(categories),
+    tags: [...new Set(sorted.flatMap(q => q.tags))].sort((a, b) => a.localeCompare(b)),
+  };
+}
+
+function describeSync({ questions: q, categories: c }) {
+  const parts = [];
+  if (q.added) parts.push(`${q.added} new`);
+  if (q.updated) parts.push(`${q.updated} updated`);
+  if (q.removed) parts.push(`${q.removed} removed`);
+  const catChanges = c.added + c.updated + c.removed;
+  if (parts.length === 0 && catChanges === 0) return "Already up to date.";
+  return [
+    parts.length ? `Questions: ${parts.join(", ")}.` : "",
+    catChanges ? `${catChanges} categor${catChanges === 1 ? "y" : "ies"} changed.` : "",
+  ].filter(Boolean).join(" ");
+}
 
 export default function QuestionBank() {
-  const [searchParams] = useSearchParams();
-  const autoJoinRoomId = searchParams.get("sync")?.toUpperCase() || null;
-  const [activeTab, setActiveTab] = useState(autoJoinRoomId ? "sync" : "browse");
-  const [categories, setCategories] = useState([]);
-  const [questions, setQuestions] = useState([]);
-  const [tags, setTags] = useState([]);
-  const [selectedCategoryId, setSelectedCategoryId] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [importStatus, setImportStatus] = useState("");
-  const importInputRef = useRef(null);
+  const [cache, setCache] = useState(null);
+  const [loadError, setLoadError] = useState("");
+  const [sync, setSync] = useState({ busy: false, message: "", error: false });
+  const [storedTab, setActiveTab] = usePersistentState("tool:question_bank:tab", "browse");
+  const activeTab = TABS.some(t => t.id === storedTab) ? storedTab : "browse";
+  const [progress, setProgress] = usePersistentState("tool:question_bank:progress", {}, { debounceMs: 0 });
+  const [history, setHistory] = usePersistentState("tool:question_bank:exam-history", [], { debounceMs: 0 });
 
-  const refresh = useCallback(async () => {
-    const [cats, qs, tgs] = await Promise.all([getAllCategories(), getAllQuestions(), getAllTags()]);
-    setCategories(cats);
-    setQuestions(qs);
-    setTags(tgs);
-    setLoading(false);
+  const runSync = useCallback(async () => {
+    setSync({ busy: true, message: "Syncing…", error: false });
+    try {
+      const summary = await syncBank();
+      setCache(await loadCache());
+      setSync({ busy: false, message: describeSync(summary), error: false });
+    } catch (e) {
+      setSync({ busy: false, message: `Sync failed: ${e.message}`, error: true });
+    }
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  // Open the local cache; the very first visit (nothing cached yet) syncs automatically.
+  useEffect(() => {
+    let cancelled = false;
+    loadCache()
+      .then(c => {
+        if (cancelled) return;
+        setCache(c);
+        if (!c.meta.lastSyncedAt && isRemoteConfigured) runSync();
+      })
+      .catch(e => !cancelled && setLoadError(e.message));
+    return () => { cancelled = true; };
+  }, [runSync]);
 
-  // A sub-category's questions also belong to its ancestor categories, so
-  // selecting a parent shows everything nested under it, not just direct hits.
-  const visibleQuestions = useMemo(() => {
-    if (selectedCategoryId === null) return questions;
-    const allowed = collectSubtreeIds(categories, selectedCategoryId);
-    return questions.filter(q => allowed.has(q.categoryId));
-  }, [questions, categories, selectedCategoryId]);
+  // Re-render the "synced N min ago" label once a minute.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 60000);
+    return () => clearInterval(id);
+  }, []);
 
-  async function handleDeleteQuestion(id) {
-    await deleteQuestion(id);
-    refresh();
+  const bank = useMemo(() => (cache ? buildBank(cache) : null), [cache]);
+
+  const actions = useMemo(() => ({
+    recordAttempt: (id, correct) => setProgress(p => withAttempt(p, id, correct)),
+    toggleFavorite: id => setProgress(p => withFlag(p, id, "fav")),
+    markRead: id => setProgress(p => withFlag(p, id, "read", true)),
+    resetProgress: () => setProgress({}),
+    clearHistory: () => setHistory([]),
+  }), [setProgress, setHistory]);
+
+  const recordExam = useCallback(
+    entry => setHistory(h => [entry, ...h.filter(e => e.id !== entry.id)].slice(0, HISTORY_LIMIT)),
+    [setHistory]
+  );
+
+  if (loadError) {
+    return <div className="tk-qb-root"><div className="tk-error">Couldn&apos;t open local storage: {loadError}</div></div>;
   }
-
-  async function handleSaveQuestion(question) {
-    await saveQuestion(question);
-    await refresh();
-  }
-
-  async function handleImportFile(e) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    setImportStatus("Importing…");
-    try {
-      const bankData = parseBankJson(await file.text());
-      const result = await importBank(bankData);
-      setImportStatus(
-        `Imported: ${result.addedQuestions} question(s) added, ${result.skippedQuestions} skipped as duplicates, ${result.addedCategories} new categor${result.addedCategories === 1 ? "y" : "ies"}, ${result.addedTags} new tag(s).`
-      );
-      await refresh();
-    } catch (err) {
-      setImportStatus(`Import failed: ${err.message}`);
-    }
-  }
-
-  function checkQuestionDuplicate(candidate) {
-    return findDuplicate(questions, candidate, byCategoryId);
-  }
-
-  if (loading) {
+  if (!bank) {
     return <div className="tk-qb-root"><p className="tk-qb-tree-empty">Loading question bank…</p></div>;
   }
+
+  const lastSyncedAt = cache.meta.lastSyncedAt;
+  const isEmpty = bank.questions.length === 0;
 
   return (
     <div className="tk-qb-root">
       <div className="tk-tool-header">
         <h2 className="tk-tool-title">Question Bank</h2>
-        <div className="tk-tool-actions">
-          <button className="tk-action-btn" onClick={() => downloadBankAsJson(categories, questions, tags)}>
-            Export JSON
-          </button>
-          <input
-            ref={importInputRef}
-            type="file"
-            accept="application/json"
-            style={{ display: "none" }}
-            onChange={handleImportFile}
-          />
-          <button className="tk-action-btn" onClick={() => importInputRef.current.click()}>
-            Import JSON
-          </button>
-        </div>
-      </div>
-      {importStatus && <p className="tk-qb-review-reason">{importStatus}</p>}
-
-      <div className="tk-qb-tabs">
-        {TABS.map(t => (
+        <div className="tk-qb-syncbar">
+          <span className="tk-qb-note">
+            {bank.questions.length} questions · {lastSyncedAt ? `synced ${timeAgo(lastSyncedAt)}` : "never synced"}
+          </span>
           <button
-            key={t.id}
-            className={`tk-qb-tab${activeTab === t.id ? " tk-active" : ""}`}
-            onClick={() => setActiveTab(t.id)}
+            className="tk-action-btn"
+            onClick={runSync}
+            disabled={sync.busy || !isRemoteConfigured}
+            title={isRemoteConfigured ? "Pull the latest questions" : "Supabase isn't configured"}
           >
-            {t.label}
+            {sync.busy ? "Syncing…" : "⟳ Sync"}
           </button>
-        ))}
+        </div>
       </div>
-
-      {activeTab === "browse" && (
-        <div className="tk-qb-browse-layout">
-          <div className="tk-qb-browse-sidebar">
-            <CategoryTree
-              categories={categories}
-              selectedId={selectedCategoryId}
-              onSelect={setSelectedCategoryId}
-              onRefresh={refresh}
-            />
-          </div>
-          <div className="tk-qb-browse-main">
-            <QuestionList
-              questions={visibleQuestions}
-              categories={categories}
-              tags={tags}
-              onDelete={handleDeleteQuestion}
-              onChanged={refresh}
-            />
-          </div>
+      {sync.message && !sync.busy && (
+        <p className={sync.error ? "tk-error" : "tk-qb-note"}>{sync.message}</p>
+      )}
+      {!isRemoteConfigured && (
+        <div className="tk-error">
+          Supabase isn&apos;t configured — set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.
         </div>
       )}
 
-      {activeTab === "add" && (
-        <div className="tk-qb-add-layout">
-          {categories.length === 0 ? (
-            <p className="tk-qb-tree-empty">Create a category in the Browse tab before adding questions.</p>
-          ) : (
-            <QuestionForm
-              categories={categories}
-              allTags={tags}
-              onTagsChanged={refresh}
-              onSave={handleSaveQuestion}
-              submitLabel="Save question"
-              checkDuplicate={checkQuestionDuplicate}
-            />
+      {isEmpty ? (
+        <p className="tk-qb-tree-empty">
+          {sync.busy ? "Downloading questions…" : "No questions cached yet — press Sync to download them."}
+        </p>
+      ) : (
+        <>
+          <div className="tk-qb-tabs">
+            {TABS.map(t => (
+              <button
+                key={t.id}
+                className={`tk-qb-tab${activeTab === t.id ? " tk-active" : ""}`}
+                onClick={() => setActiveTab(t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {activeTab === "browse" && <BrowsePanel bank={bank} progress={progress} actions={actions} />}
+          {activeTab === "study" && <StudyPanel bank={bank} progress={progress} actions={actions} />}
+          {activeTab === "exam" && (
+            <ExamPanel bank={bank} progress={progress} actions={actions} onExamFinished={recordExam} />
           )}
-        </div>
-      )}
-
-      {activeTab === "import" && (
-        categories.length === 0 ? (
-          <p className="tk-qb-tree-empty">Create a category in the Browse tab before importing questions.</p>
-        ) : (
-          <OcrUpload categories={categories} questions={questions} allTags={tags} onTagsChanged={refresh} onSaved={refresh} />
-        )
-      )}
-
-      {activeTab === "study" && (
-        <StudyPanel categories={categories} questions={questions} tags={tags} onChanged={refresh} />
-      )}
-
-      {activeTab === "exam" && (
-        <ExamPanel categories={categories} questions={questions} tags={tags} />
-      )}
-
-      {activeTab === "stats" && (
-        <StatsPanel categories={categories} questions={questions} />
-      )}
-
-      {activeTab === "sync" && (
-        <SyncPanel onSynced={refresh} autoJoinRoomId={autoJoinRoomId} />
+          {activeTab === "stats" && (
+            <StatsPanel bank={bank} progress={progress} history={history} actions={actions} />
+          )}
+        </>
       )}
     </div>
   );

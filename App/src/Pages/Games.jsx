@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { navigate, useDocumentTitle } from "../Utils/router";
+import { Redirect } from "../Utils/Link";
 import Breakout from "./games/Breakout";
 import Minesweeper from "./games/Minesweeper";
 import Snake from "./games/Snake";
@@ -27,31 +27,29 @@ const GAMES = [
   { id: "battleship", label: "🚢 BATTLESHIP", component: Battleship, desc: "Online PvP · dynamic board & fleet size" },
 ];
 
-const Games = () => {
-  // Supports a shared multiplayer link (?game=poker&room=XXXXXX) auto-selecting
-  // the game — Poker.jsx reads the `room` param itself, same pattern Chat.jsx
-  // already uses for its own share links.
-  const [searchParams] = useSearchParams();
-  const [selectedGame, setSelectedGame] = useState(() => {
-    const game = searchParams.get("game");
-    return game && GAMES.some(g => g.id === game) ? game : null;
-  });
+// The selected game comes from /games/:gameId. Shared multiplayer links
+// (/games/poker?room=XXXXXX) land straight in the game — Poker.jsx reads the
+// `room` param itself, same pattern Chat.jsx uses for its own share links.
+const Games = ({ gameId = null }) => {
+  const game = gameId ? GAMES.find(g => g.id === gameId) : null;
+  useDocumentTitle(game ? `${game.label.split(" ").slice(1).join(" ")} · Games` : "Games");
 
-  if (selectedGame) {
-    const game = GAMES.find((g) => g.id === selectedGame);
+  if (gameId && !game) return <Redirect to="/games" />;
+
+  if (game) {
     const GameComponent = game.component;
 
     return (
       <div className="h-screen flex flex-col bg-slate-900 relative">
         <button
-          onClick={() => setSelectedGame(null)}
+          onClick={() => navigate("/games")}
           className="fixed top-4 left-4 px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition-all shadow-lg z-50"
           title="Back to Games"
         >
           ← Back
         </button>
         <div className="flex-1 overflow-auto">
-          <GameComponent />
+          <GameComponent key={game.id} />
         </div>
       </div>
     );
@@ -72,7 +70,7 @@ const Games = () => {
             {GAMES.map((game) => (
               <button
                 key={game.id}
-                onClick={() => setSelectedGame(game.id)}
+                onClick={() => navigate(`/games/${game.id}`)}
                 className="group relative overflow-hidden rounded-lg bg-gradient-to-br from-slate-750 to-slate-800 border-2 border-indigo-500/30 hover:border-indigo-500 p-6 transition-all hover:shadow-xl hover:shadow-indigo-500/20"
               >
                 <div className="absolute inset-0 bg-gradient-to-br from-indigo-600/0 to-indigo-600/0 group-hover:from-indigo-600/10 group-hover:to-indigo-600/10 transition-all" />

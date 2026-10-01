@@ -7,7 +7,7 @@ import { trackToManifestEntry, planTrackSync, mergeNamedCollections } from "../s
 const CHUNK_SIZE = 16 * 1024;
 
 function buildSyncLink(roomId) {
-  return `${window.location.origin}/toolz?tool=music_player&sync=${roomId}`;
+  return `${window.location.origin}/toolz/music_player?sync=${roomId}`;
 }
 
 function extractRoomId(scanned) {

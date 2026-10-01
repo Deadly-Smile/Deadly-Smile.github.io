@@ -1,5 +1,6 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { CopyBtn, CopySmall, ActionBtn } from "./tk-shared";
+import { usePersistentState, readPersisted, writePersisted } from "../../Utils/usePersistentState";
 
 // ── Style helpers ────────────────────────────────────────────────────────
 const S = {
@@ -22,6 +23,34 @@ const METHOD_COLORS = { GET:"#00ff88", POST:"#4a90e2", PUT:"#ffcc00", PATCH:"#ff
 
 const mkRow  = () => ({ id:Date.now()+Math.random(), key:"", value:"", enabled:true });
 const mkKV   = (k="",v="") => ({ id:Date.now()+Math.random(), key:k, value:v, enabled:true });
+
+// ── Persistence ───────────────────────────────────────────────────────────────
+// Request config survives leaving the tool, but credentials never reach
+// localStorage: each scrub* strips secret values right before a write, so the
+// in-memory copy keeps working until the tool is closed.
+const SECRET_KEY_RE = /authorization|token|secret|password|passwd|api[-_]?key|cookie|session/i;
+const scrubRows = rows => Array.isArray(rows)
+  ? rows.map(r => SECRET_KEY_RE.test(r.key||"") ? { ...r, value:"" } : r) : rows;
+const scrubCookies = rows => Array.isArray(rows) ? rows.map(r => ({ ...r, value:"" })) : rows;
+// eslint-disable-next-line no-unused-vars
+const scrubAuth = ({ password, token, keyValue, ...rest }) => rest;
+
+// Same contract as usePersistentState, plus a module-level (stable) `scrub`.
+function useScrubbedState(key, initial, scrub) {
+  const [value, setValue] = useState(() => readPersisted(key, initial));
+  const latest = useRef(value);
+  latest.current = value;
+  useEffect(() => {
+    const t = setTimeout(() => writePersisted(key, scrub(value)), 250);
+    return () => clearTimeout(t);
+  }, [key, value, scrub]);
+  useEffect(() => {
+    const flush = () => writePersisted(key, scrub(latest.current));
+    window.addEventListener("pagehide", flush);
+    return () => { window.removeEventListener("pagehide", flush); flush(); };
+  }, [key, scrub]);
+  return [value, setValue];
+}
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -581,22 +610,22 @@ function parseSetCookie(raw) {
 // ── Main HttpTool ─────────────────────────────────────────────────────────────
 export default function HttpTool() {
   // ── Request state ──
-  const [method,   setMethod]   = useState("GET");
-  const [url,      setUrl]      = useState("https://jsonplaceholder.typicode.com/posts/1");
-  const [reqTab,   setReqTab]   = useState("params");
-  const [params,   setParams]   = useState([mkKV()]);
-  const [headers,  setHeaders]  = useState([mkKV("Accept","application/json")]);
-  const [cookies,  setCookies]  = useState([mkRow()]);
-  const [auth,     setAuth]     = useState({ type:"none" });
-  const [bodyType, setBodyType] = useState("none");
-  const [body,     setBody]     = useState({ raw:"", formData:[mkRow()], urlEncoded:[mkRow()], binaryUrl:"" });
-  const [tests,    setTests]    = useState("");
+  const [method,   setMethod]   = usePersistentState("tool:http:method", "GET");
+  const [url,      setUrl]      = usePersistentState("tool:http:url", "https://jsonplaceholder.typicode.com/posts/1");
+  const [reqTab,   setReqTab]   = usePersistentState("tool:http:reqTab", "params");
+  const [params,   setParams]   = useScrubbedState("tool:http:params", [mkKV()], scrubRows);
+  const [headers,  setHeaders]  = useScrubbedState("tool:http:headers", [mkKV("Accept","application/json")], scrubRows);
+  const [cookies,  setCookies]  = useScrubbedState("tool:http:cookies", [mkRow()], scrubCookies);
+  const [auth,     setAuth]     = useScrubbedState("tool:http:auth", { type:"none" }, scrubAuth);
+  const [bodyType, setBodyType] = usePersistentState("tool:http:bodyType", "none");
+  const [body,     setBody]     = usePersistentState("tool:http:body", { raw:"", formData:[mkRow()], urlEncoded:[mkRow()], binaryUrl:"" });
+  const [tests,    setTests]    = usePersistentState("tool:http:tests", "");
 
   // ── Global variables ──
-  const [vars,     setVars]     = useState([
+  const [vars,     setVars]     = useScrubbedState("tool:http:vars", [
     mkKV("baseUrl","https://jsonplaceholder.typicode.com"),
     mkKV("token",""),
-  ]);
+  ], scrubRows);
   const [varTab,   setVarTab]   = useState(false);
 
   // ── cURL Import ──
@@ -731,7 +760,7 @@ export default function HttpTool() {
       urlEncoded: parsed.body.urlEncoded.length > 0 ? parsed.body.urlEncoded : [mkRow()],
       binaryUrl: "",
     });
-  }, []);
+  }, [setMethod, setUrl, setParams, setHeaders, setAuth, setCookies, setBodyType, setBody]);
 
   // ── Export to cURL ───────────────────────────────────────────────────────
   const generateCurl = useCallback(() => {

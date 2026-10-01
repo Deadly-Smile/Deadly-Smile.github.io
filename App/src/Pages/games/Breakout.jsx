@@ -1,50 +1,57 @@
 import { useState, useRef, useEffect } from 'react';
 import { ActionBtn, StatusBar } from '../tools/tk-shared';
+import { usePersistentState, readPersisted, writePersisted, removePersisted } from '../../Utils/usePersistentState';
+
+const SAVE_KEY = 'game:breakout:save';
+
+// Pre-usePersistentState high score, carried over on first load.
+const legacyHighScore = () => {
+  try { return parseInt(localStorage.getItem('breakoutHighScore'), 10) || 0; } catch { return 0; }
+};
+
+const isValidSave = (s) =>
+  s && s.ball && s.paddle && Array.isArray(s.bricks) && Number.isFinite(s.score) && Number.isFinite(s.level);
 
 export default function Breakout() {
   const canvasRef = useRef(null);
+  // An unfinished game left behind when the player navigated away; resumes paused.
+  const [savedGame, setSavedGame] = useState(() => {
+    const s = readPersisted(SAVE_KEY, null);
+    return isValidSave(s) ? s : null;
+  });
   const [gameActive, setGameActive] = useState(false);
-  const [score, setScore] = useState(0);
-  const [highScore, setHighScore] = useState(0);
-  const [level, setLevel] = useState(1);
-  const [status, setStatus] = useState({ msg: "Click START to begin", type: "" });
+  const [score, setScore] = useState(() => savedGame?.score ?? 0);
+  const [highScore, setHighScore] = usePersistentState('game:breakout:highScore', legacyHighScore);
+  const [level, setLevel] = useState(() => savedGame?.level ?? 1);
+  const [status, setStatus] = useState(() => savedGame
+    ? { msg: "Game paused. Click RESUME to continue", type: "" }
+    : { msg: "Click START to begin", type: "" });
   const touchRef = useRef({ x: 0, active: false });
   const gameStateRef = useRef({
     score: 0,
     level: 1,
     bricksDestroyed: 0,
   });
+  const playStateRef = useRef(null); // the running game's ball/paddle/bricks
+  const stopLoopRef = useRef(null);  // set while a game loop is running
 
-  const initGame = () => {
+  const initGame = (saved) => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
 
     return {
       canvas,
       ctx: canvas.getContext('2d'),
-      ball: { x: canvas.width / 2, y: canvas.height - 60, dx: 4, dy: -4, radius: 5 },
-      paddle: { x: canvas.width / 2 - 40, y: canvas.height - 20, width: 80, height: 10, dx: 0 },
-      bricks: generateBricks(gameStateRef.current.level),
+      ball: saved?.ball ?? { x: canvas.width / 2, y: canvas.height - 60, dx: 4, dy: -4, radius: 5 },
+      paddle: saved?.paddle ?? { x: canvas.width / 2 - 40, y: canvas.height - 20, width: 80, height: 10, dx: 0 },
+      bricks: saved?.bricks ?? generateBricks(gameStateRef.current.level),
       keys: {},
       gameOver: false,
       won: false,
     };
   };
 
-  // Load high score from localStorage on mount
-  useEffect(() => {
-    const savedHighScore = localStorage.getItem('breakoutHighScore');
-    if (savedHighScore) {
-      setHighScore(parseInt(savedHighScore, 10));
-    }
-  }, []);
-
-  const saveHighScore = (newScore) => {
-    if (newScore > highScore) {
-      setHighScore(newScore);
-      localStorage.setItem('breakoutHighScore', newScore.toString());
-    }
-  };
+  const saveHighScore = (newScore) => setHighScore(h => Math.max(h, newScore));
 
   const generateBricks = (lvl) => {
     const bricks = [];
@@ -197,13 +204,49 @@ export default function Breakout() {
     }
   };
 
-  const startGame = () => {
+  // Show the paused board of a restored game.
+  useEffect(() => {
+    if (savedGame) drawGame(initGame(savedGame));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Leaving mid-game stops the loop and stores a snapshot to resume from.
+  useEffect(() => {
+    const snapshot = () => {
+      const state = playStateRef.current;
+      if (!stopLoopRef.current || !state || state.gameOver) return;
+      const { score, level, bricksDestroyed } = gameStateRef.current;
+      writePersisted(SAVE_KEY, { ball: state.ball, paddle: state.paddle, bricks: state.bricks, score, level, bricksDestroyed });
+    };
+    window.addEventListener('pagehide', snapshot);
+    return () => {
+      window.removeEventListener('pagehide', snapshot);
+      snapshot();
+      stopLoopRef.current?.();
+    };
+  }, []);
+
+  const startGame = () => runGame(null);
+
+  const resumeGame = () => {
+    if (savedGame) runGame(savedGame);
+  };
+
+  const runGame = (saved) => {
+    stopLoopRef.current?.();
+    removePersisted(SAVE_KEY);
+    setSavedGame(null);
     setGameActive(true);
-    setScore(0);
-    setLevel(1);
-    gameStateRef.current = { score: 0, level: 1, bricksDestroyed: 0 };
-    setStatus({ msg: "Game started! Use arrows or touch to move.", type: "ok" });
-    const state = initGame();
+    gameStateRef.current = saved
+      ? { score: saved.score, level: saved.level, bricksDestroyed: saved.bricksDestroyed ?? 0 }
+      : { score: 0, level: 1, bricksDestroyed: 0 };
+    setScore(gameStateRef.current.score);
+    setLevel(gameStateRef.current.level);
+    setStatus({ msg: saved ? "Resumed! Use arrows or touch to move." : "Game started! Use arrows or touch to move.", type: "ok" });
+    const state = initGame(saved);
+    if (!state) return;
+    playStateRef.current = state;
+    let stopped = false;
 
     const handleKeyDown = (e) => {
       state.keys[e.key] = true;
@@ -238,16 +281,24 @@ export default function Breakout() {
     canvasRef.current?.addEventListener('touchmove', handleTouchMove);
     canvasRef.current?.addEventListener('touchend', handleTouchEnd);
 
+    const canvas = canvasRef.current;
+    stopLoopRef.current = () => {
+      stopped = true;
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      canvas.removeEventListener('touchstart', handleTouchStart);
+      canvas.removeEventListener('touchmove', handleTouchMove);
+      canvas.removeEventListener('touchend', handleTouchEnd);
+      stopLoopRef.current = null;
+    };
+
     const gameLoop = () => {
+      if (stopped) return;
       if (state.gameOver) {
         setGameActive(false);
         saveHighScore(gameStateRef.current.score);
         setStatus({ msg: `Game Over! Final Score: ${gameStateRef.current.score}`, type: "err" });
-        window.removeEventListener('keydown', handleKeyDown);
-        window.removeEventListener('keyup', handleKeyUp);
-        canvasRef.current?.removeEventListener('touchstart', handleTouchStart);
-        canvasRef.current?.removeEventListener('touchmove', handleTouchMove);
-        canvasRef.current?.removeEventListener('touchend', handleTouchEnd);
+        stopLoopRef.current?.();
         return;
       }
 
@@ -273,6 +324,9 @@ export default function Breakout() {
   };
 
   const resetGame = () => {
+    stopLoopRef.current?.();
+    removePersisted(SAVE_KEY);
+    setSavedGame(null);
     setGameActive(false);
     setScore(0);
     setLevel(1);
@@ -318,11 +372,12 @@ export default function Breakout() {
       </div>
 
       <div className="flex gap-2 justify-center">
+        {savedGame && !gameActive && <ActionBtn onClick={resumeGame}>Resume</ActionBtn>}
         <ActionBtn
           onClick={startGame}
           disabled={gameActive}
         >
-          {gameActive ? "Playing..." : "Start Game"}
+          {gameActive ? "Playing..." : savedGame ? "New Game" : "Start Game"}
         </ActionBtn>
         <ActionBtn onClick={resetGame}>
           Reset

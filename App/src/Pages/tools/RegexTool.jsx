@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { ActionBtn, StatusBar, SplitPane, PaneLabel } from "./tk-shared";
+import { usePersistentState } from "../../Utils/usePersistentState";
 
 export default function RegexTool() {
-  const [pattern, setPattern] = useState("");
-  const [flags,   setFlags]   = useState("g");
-  const [testStr, setTestStr] = useState("");
+  const [pattern, setPattern] = usePersistentState("tool:regex:pattern", "");
+  const [flags,   setFlags]   = usePersistentState("tool:regex:flags", "g");
+  const [testStr, setTestStr] = usePersistentState("tool:regex:testStr", "");
   const [output,  setOutput]  = useState([]);
   const [status,  setStatus]  = useState({ msg: "Ready.", type: "" });
   const [isMaximized, setIsMaximized] = useState(false);

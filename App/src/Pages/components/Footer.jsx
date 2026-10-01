@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "../../Utils/Link";
 import { AiFillGithub, AiFillLinkedin, AiTwotoneMail, AiFillTool } from "react-icons/ai";
 import { IoGameController } from "react-icons/io5";
 const Footer = () => {

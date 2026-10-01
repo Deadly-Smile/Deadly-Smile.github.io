@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { CopyBtn, ActionBtn, SplitPane, PaneLabel } from "./tk-shared";
+import { usePersistentState } from "../../Utils/usePersistentState";
 
 function diffLines(a,b){
   const aL=a.split("\n"),bL=b.split("\n"),res=[];
@@ -13,10 +14,12 @@ function diffLines(a,b){
 }
 
 export default function DiffTool() {
-  const [a,setA]=useState("");const[b,setB]=useState("");
-  const [diff,setDiff]=useState([]);const[run,setRun]=useState(false);
+  // The diff itself is recomputed from the persisted inputs rather than stored.
+  const [a,setA]=usePersistentState("tool:diff:a","");const[b,setB]=usePersistentState("tool:diff:b","");
+  const[run,setRun]=usePersistentState("tool:diff:run",false);
+  const [diff,setDiff]=useState(()=>run?diffLines(a,b):[]);
   const [isMaximized, setIsMaximized] = useState(false);
-  const diffRef=useRef([]);
+  const diffRef=useRef(diff);
   const compare=()=>{const d=diffLines(a,b);setDiff(d);diffRef.current=d;setRun(true);};
   const clear=()=>{setA("");setB("");setDiff([]);diffRef.current=[];setRun(false);};
 

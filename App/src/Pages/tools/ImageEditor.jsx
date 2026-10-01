@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { usePersistentState } from "../../Utils/usePersistentState";
 
 // ─── Pixel-level filters ───────────────────────────────────────────────────────
 
@@ -195,19 +196,21 @@ const CROP_RATIOS = [
 // ─── Component ─────────────────────────────────────────────────────────────────
 
 const ImageEditorTool = () => {
+  // Tool options (panel, text/draw/shape settings) persist via usePersistentState;
+  // the image and its edits don't — canvas data is too large for localStorage.
   const [srcImg,       setSrcImg]       = useState(null);
   const [origImg,      setOrigImg]      = useState(null);
   const [preview,      setPreview]      = useState(null);
   const [adj,          setAdj]          = useState(DEFAULT_ADJ);
   const [filter,       setFilter]       = useState(null);
   const [tonePreset,   setTonePreset]   = useState(null);
-  const [panel,        setPanel]        = useState("adjust");
+  const [panel,        setPanel]        = usePersistentState("tool:image:panel", "adjust");
   const [history,      setHistory]      = useState([]);
   const [histIdx,      setHistIdx]      = useState(-1);
 
   const [resizeW,      setResizeW]      = useState("");
   const [resizeH,      setResizeH]      = useState("");
-  const [lockAR,       setLockAR]       = useState(true);
+  const [lockAR,       setLockAR]       = usePersistentState("tool:image:lockAR", true);
 
   const [cropMode,     setCropMode]     = useState(false);
   const [cropStart,    setCropStart]    = useState(null);
@@ -218,25 +221,25 @@ const ImageEditorTool = () => {
   const [textVal,      setTextVal]      = useState("");
   const [textX,        setTextX]        = useState(50);
   const [textY,        setTextY]        = useState(50);
-  const [textSize,     setTextSize]     = useState(36);
-  const [textColor,    setTextColor]    = useState("#ffffff");
-  const [textBold,     setTextBold]     = useState(false);
-  const [textItalic,   setTextItalic]   = useState(false);
-  const [textAlign,    setTextAlign]    = useState("left");
+  const [textSize,     setTextSize]     = usePersistentState("tool:image:textSize", 36);
+  const [textColor,    setTextColor]    = usePersistentState("tool:image:textColor", "#ffffff");
+  const [textBold,     setTextBold]     = usePersistentState("tool:image:textBold", false);
+  const [textItalic,   setTextItalic]   = usePersistentState("tool:image:textItalic", false);
+  const [textAlign,    setTextAlign]    = usePersistentState("tool:image:textAlign", "left");
   const [textDragging, setTextDragging] = useState(false);
   const [eyedropperActive, setEyedropperActive] = useState(false);
 
   const [drawActive,   setDrawActive]   = useState(false);
-  const [drawColor,    setDrawColor]    = useState("#ff0000");
-  const [drawSize,     setDrawSize]     = useState(6);
-  const [drawOpacity,  setDrawOpacity]  = useState(100);
+  const [drawColor,    setDrawColor]    = usePersistentState("tool:image:drawColor", "#ff0000");
+  const [drawSize,     setDrawSize]     = usePersistentState("tool:image:drawSize", 6);
+  const [drawOpacity,  setDrawOpacity]  = usePersistentState("tool:image:drawOpacity", 100);
   const [isDrawing,    setIsDrawing]    = useState(false);
   const lastDrawPt = useRef(null);
 
-  const [shapeTool,    setShapeTool]    = useState("rect");
-  const [shapeColor,   setShapeColor]   = useState("#ff0000");
-  const [shapeLineWidth, setShapeLineWidth] = useState(3);
-  const [shapeFill,    setShapeFill]    = useState(false);
+  const [shapeTool,    setShapeTool]    = usePersistentState("tool:image:shapeTool", "rect");
+  const [shapeColor,   setShapeColor]   = usePersistentState("tool:image:shapeColor", "#ff0000");
+  const [shapeLineWidth, setShapeLineWidth] = usePersistentState("tool:image:shapeLineWidth", 3);
+  const [shapeFill,    setShapeFill]    = usePersistentState("tool:image:shapeFill", false);
   const [shapes,       setShapes]       = useState([]);
   const [activeShape,  setActiveShape]  = useState(null);
   const [shapeDrawing, setShapeDrawing] = useState(false);

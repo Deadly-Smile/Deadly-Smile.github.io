@@ -4,10 +4,11 @@ import {
   hostSimpleRoom, joinSimpleRoom, buildQrUrl,
   registerOpenRoom, unregisterOpenRoom, fetchOpenRooms,
 } from "../../tools/tk-shared.jsx";
+import { usePersistentState } from "../../../Utils/usePersistentState";
 
 const ROOM_HEARTBEAT_MS = 20000;
 function buildShareLink(roomId) {
-  return `${window.location.origin}/games?game=battleship&room=${roomId}`;
+  return `${window.location.origin}/games/battleship?room=${roomId}`;
 }
 
 // ─── Small shared bits ───────────────────────────────────────────────────────
@@ -107,9 +108,9 @@ function BoardGrid({ size, onCellClick, onCellHover, onCellLeave, cellClass, cel
 export default function Battleship() {
   const [view, setView] = useState("menu"); // menu | lobby | placement | battle
   const [role, setRole] = useState(null);   // host | guest
-  const [nameInput, setNameInput] = useState("");
+  const [nameInput, setNameInput] = usePersistentState("game:battleship:name", "");
   const [joinInput, setJoinInput] = useState("");
-  const [discoverable, setDiscoverable] = useState(true);
+  const [discoverable, setDiscoverable] = usePersistentState("game:battleship:discoverable", true);
   const [roomId, setRoomId] = useState("");
   const [statusMsg, setStatusMsg] = useState("");
   const [openRooms, setOpenRooms] = useState([]);
@@ -118,8 +119,9 @@ export default function Battleship() {
   const [disconnected, setDisconnected] = useState(false);
 
   // Host-editable match config — dynamic board size and fleet, within limits.
-  const [boardSize, setBoardSize] = useState(engine.DEFAULT_BOARD_SIZE);
-  const [ships, setShips] = useState(() => engine.defaultFleetFor(engine.DEFAULT_BOARD_SIZE));
+  // Remembered as the player's preferred setup (a match itself never resumes).
+  const [boardSize, setBoardSize] = usePersistentState("game:battleship:boardSize", engine.DEFAULT_BOARD_SIZE);
+  const [ships, setShips] = usePersistentState("game:battleship:ships", () => engine.defaultFleetFor(engine.DEFAULT_BOARD_SIZE));
 
   // Placement phase
   const [placedShips, setPlacedShips] = useState(() => Array(ships.length).fill(null));
@@ -212,7 +214,7 @@ export default function Battleship() {
       setDisconnected(true);
       if (viewRef.current === "battle") setGameOverState(prev => prev ?? { won: true, reason: "disconnect" });
     });
-  }, [resetForNewMatch]);
+  }, [resetForNewMatch, setBoardSize, setShips]);
 
   const refreshOpenRooms = useCallback(async () => {
     setRoomsLoading(true);

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import Tesseract from "tesseract.js";
 import { CopyBtn } from "./tk-shared";
+import { usePersistentState } from "../../Utils/usePersistentState";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
@@ -16,8 +17,9 @@ export default function TextExtractor() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingMsg, setLoadingMsg] = useState("");
-  const [extractedText, setExtractedText] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
+  // The extracted text outlives the file: the PDF/image itself is not storable.
+  const [extractedText, setExtractedText] = usePersistentState("tool:text_extractor:text", "");
+  const [searchQuery, setSearchQuery] = usePersistentState("tool:text_extractor:search", "");
   const [searchMatches, setSearchMatches] = useState([]);
   const [currentMatch, setCurrentMatch] = useState(0);
   const [imagePreview, setImagePreview] = useState(null);

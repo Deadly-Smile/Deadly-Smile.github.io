@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { usePersistentState } from "../../Utils/usePersistentState";
 
 // Lightweight markdown renderer — no dependencies
 const renderMarkdown = (text) => {
@@ -89,9 +90,10 @@ const stripMarkdown = (text) => {
 
 const NotesTool = () => {
   const [notes, setNotes] = useState([]);
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
-  const [editingId, setEditingId] = useState(null);
+  // Saved notes live under "tk_notes" (below); the unsaved draft persists separately.
+  const [title, setTitle] = usePersistentState("tool:notes:draftTitle", "");
+  const [content, setContent] = usePersistentState("tool:notes:draftContent", "");
+  const [editingId, setEditingId] = usePersistentState("tool:notes:editingId", null);
   const [isMaximized, setIsMaximized] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
   const [previewMode, setPreviewMode] = useState(false);
@@ -129,7 +131,8 @@ const NotesTool = () => {
       alert("Title cannot be empty");
       return;
     }
-    if (editingId) {
+    // A restored editingId may point at a note deleted since — save it as new then.
+    if (editingId && notes.some(n => n.id === editingId)) {
       const updated = notes.map(n =>
         n.id === editingId
           ? { ...n, title, content, updated: new Date().toLocaleString() }
