@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useState } from "react";
-import { useSearchParams } from "../../../Utils/router";
+import { navigate, useSearchParams } from "../../../Utils/router";
+import { useKeepAliveActive, useKeepAliveRelease } from "../../../Utils/KeepAlive";
 import { usePersistentState } from "../../../Utils/usePersistentState";
 import { StatusBar } from "../tk-shared.jsx";
 import { libraryReducer, initialLibraryState } from "./libraryReducer";
@@ -17,6 +18,7 @@ import {
 import { getSettings, saveSettings, getLastState } from "./storage";
 import { useAudioPlayer } from "./hooks/useAudioPlayer";
 import { useShuffleQueue } from "./hooks/useShuffleQueue";
+import { useMediaSession } from "./hooks/useMediaSession";
 import { closeAudioGraph } from "./hooks/useVisualizer";
 import UploadButton from "./components/UploadButton";
 import TrackList from "./components/TrackList";
@@ -25,6 +27,7 @@ import AlbumView from "./components/AlbumView";
 import PlayerControls from "./components/PlayerControls";
 import Visualizer from "./components/Visualizer";
 import SyncPanel from "./components/SyncPanel";
+import MiniPlayer from "./components/MiniPlayer";
 import styles from "./MusicPlayer.module.css";
 
 const REPEAT_CYCLE = ["off", "all", "one"];
@@ -36,8 +39,13 @@ const TABS = [
 ];
 
 export default function MusicPlayer() {
+  // Kept alive at the app root (Toolz registry `keepAlive`): while another
+  // page is showing, playback continues and a MiniPlayer stands in for the UI.
+  const onScreen = useKeepAliveActive();
+  const releaseInstance = useKeepAliveRelease();
   const [searchParams] = useSearchParams();
-  const autoJoinRoomId = searchParams.get("sync")?.toUpperCase() || null;
+  // Only honour ?sync= on our own page — while hidden, the URL is someone else's.
+  const autoJoinRoomId = (onScreen && searchParams.get("sync")?.toUpperCase()) || null;
   const [library, dispatch] = useReducer(libraryReducer, initialLibraryState);
   // Volume/shuffle/repeat/last track persist via ./storage; this is just the open tab.
   const [storedTab, setActiveTab] = usePersistentState("tool:music_player:tab", autoJoinRoomId ? "sync" : "library");
@@ -57,6 +65,20 @@ export default function MusicPlayer() {
   }, [shuffleQueue, repeatMode]);
 
   const player = useAudioPlayer(currentTrack, { repeatMode, onNaturalEnd: handleNaturalEnd });
+
+  // Lock screen / notification controls (and keeps Android from freezing the tab).
+  useMediaSession({
+    track: currentTrack,
+    coverBlob: library.albums.find((a) => a.id === currentTrack?.albumId)?.coverImageBlob ?? null,
+    isPlaying: player.isPlaying,
+    currentTime: player.currentTime,
+    duration: player.duration,
+    onPlay: player.play,
+    onPause: player.pause,
+    onNext: () => shuffleQueue.next({ repeatAll: repeatMode === "all" }),
+    onPrevious: shuffleQueue.previous,
+    onSeek: player.seek,
+  });
 
   const reloadLibrary = useCallback(() => {
     return Promise.all([getAllTracks(), getAllAlbums(), getAllPlaylists()])
@@ -296,7 +318,7 @@ export default function MusicPlayer() {
         )}
       </div>
 
-      <Visualizer audioRef={player.audioRef} isPlaying={player.isPlaying} />
+      <Visualizer audioRef={player.audioRef} isPlaying={player.isPlaying} visible={onScreen} />
 
       <PlayerControls
         currentTrack={currentTrack}
@@ -314,6 +336,18 @@ export default function MusicPlayer() {
         volume={player.volume}
         onVolumeChange={player.setVolume}
       />
+
+      {!onScreen && currentTrack && (
+        <MiniPlayer
+          track={currentTrack}
+          isPlaying={player.isPlaying}
+          onTogglePlay={player.togglePlay}
+          onNext={() => shuffleQueue.next({ repeatAll: repeatMode === "all" })}
+          onOpen={() => navigate("/toolz/music_player")}
+          // Unmounting the instance pauses, saves position and closes the audio graph.
+          onClose={releaseInstance}
+        />
+      )}
     </div>
   );
 }

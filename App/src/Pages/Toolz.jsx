@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { navigate, useSearchParams, useDocumentTitle } from "../Utils/router";
 import { Link, Redirect } from "../Utils/Link";
+import { KeepAliveSlot } from "../Utils/KeepAlive";
 import "../toolkit.css";
 
 import JsonTool        from "./tools/JsonTool";
@@ -59,7 +60,7 @@ const ALL_TOOLS = [
   { id: "input_checker", label: "Tester", icon: "🎮", component: InputDeviceChecker },
   { id: "csv_editor", label: "CSV Editor", icon: "📊", component: CSVEditor },
   { id: "practice", label: "Practice", icon: "🧩", component: PracticeTool },
-  { id: "music_player", label: "Music Player", icon: "🎵", component: MusicPlayer },
+  { id: "music_player", label: "Music Player", icon: "🎵", component: MusicPlayer, keepAlive: true },
   { id: "question_bank", label: "Question Bank", icon: "📚", component: QuestionBank }
 ];
 
@@ -290,7 +291,8 @@ const Toolz = ({ embedded = false, toolId = null }) => {
     }
   }
 
-  const ActiveTool = ALL_TOOLS.find(t => t.id === active)?.component;
+  const activeEntry = ALL_TOOLS.find(t => t.id === active);
+  const ActiveTool = activeEntry?.component;
 
   if (!embedded && requested && !active) return <Redirect to="/toolz" />;
 
@@ -335,7 +337,11 @@ const Toolz = ({ embedded = false, toolId = null }) => {
         )}
       </div>
       <div className="tk-tool-section">
-        {ActiveTool ? <ActiveTool key={active} /> : <ToolLauncher config={config} onPick={pickTool} />}
+        {/* keepAlive tools stay mounted at the app root once opened (see
+            Utils/KeepAlive.jsx), so they keep running after switching away. */}
+        {activeEntry?.keepAlive
+          ? <KeepAliveSlot key={active} id={`tool:${active}`} element={<ActiveTool />} />
+          : ActiveTool ? <ActiveTool key={active} /> : <ToolLauncher config={config} onPick={pickTool} />}
       </div>
     </main>
   );

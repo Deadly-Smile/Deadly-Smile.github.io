@@ -341,3 +341,78 @@
   font-size: 0.8rem;
   margin-bottom: 0.75rem;
 }
+
+/* Background mini-player. Lives on <body>, outside .tk-root, so it carries
+   its own copy of the tk palette. */
+.miniPlayer {
+  --tk-surface: #111111;
+  --tk-border-bright: #3a3a3a;
+  --tk-accent: #00ff88;
+  --tk-text: #e8e8e8;
+  --tk-mono: 'Space Mono', monospace;
+  --tk-radius: 2px;
+
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 0.35rem;
+  background: var(--tk-surface);
+  border: 1px solid var(--tk-border-bright);
+  border-radius: var(--tk-radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  color: var(--tk-text);
+  font-family: var(--tk-mono);
+}
+
+/* The WhiteBoard keeps its status pill in the bottom-left corner. */
+.miniPlayerRaised {
+  bottom: 64px;
+}
+
+.miniTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.3rem 0.4rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.miniTitle:hover .miniTitleText {
+  color: var(--tk-accent);
+}
+
+.miniTitleText {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.miniBtn {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--tk-border-bright);
+  color: var(--tk-text);
+  border-radius: var(--tk-radius);
+  width: 2rem;
+  height: 2rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.miniBtn:hover {
+  color: var(--tk-accent);
+  border-color: var(--tk-accent);
+}
