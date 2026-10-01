@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { parseBlob } from "music-metadata-browser";
+import { parseBlob } from "music-metadata";
 import { putTrack } from "../db/db";
 import { isDuplicateUpload, stripExtension } from "../utils";
 import styles from "../MusicPlayer.module.css";
