@@ -55,7 +55,7 @@ const ALL_TOOLS = [
   { id: "csv",    label: "CSV / TSV",   icon: "📑", component: CSVTSVConverter    },
   { id: "pass",   label: "Password",    icon: "🔒", component: PasswordGenerator  },
   { id: "text_extractor",    label: "Text Extractor",  icon: "📃", component: TextExtractor },
-  { id: "chat",   label: "P2P Chat",    icon: "💬", component: P2PChat            },
+  { id: "chat",   label: "P2P Chat",    icon: "💬", component: P2PChat, keepAlive: true },
   { id: "image",  label: "Image Editor", icon: "🖼️", component: ImageEditorTool   },
   { id: "input_checker", label: "Tester", icon: "🎮", component: InputDeviceChecker },
   { id: "csv_editor", label: "CSV Editor", icon: "📊", component: CSVEditor },

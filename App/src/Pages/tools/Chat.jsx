@@ -6,6 +6,8 @@ import {
 } from "react-icons/fa";
 import { getIceServers, generateRoomId, buildQrUrl, registerOpenRoom, unregisterOpenRoom, fetchOpenRooms } from "./tk-shared.jsx";
 import { usePersistentState } from "../../Utils/usePersistentState";
+import { navigate, useSearchParams } from "../../Utils/router";
+import { BackgroundDock, useKeepAliveActive, useKeepAliveRelease } from "../../Utils/KeepAlive";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const CHUNK_SIZE = 16 * 1024;
@@ -315,7 +317,70 @@ function MessageComposer({ onSendText, onSendFile, onTyping }) {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
+// Shown in the KeepAlive dock while the user is on another page and a room is
+// open: room status, unread count, call state, and a way back or out. Lives
+// outside .tk-root, so colours are literal rather than var(--tk-*).
+function ChatIndicator({ view, roomId, unread, callState, callType, onOpen, onHangUp, onLeave }) {
+  const inCall = callState === "outgoing" || callState === "active";
+  const ringing = callState === "incoming";
+  const label = ringing ? `Incoming ${callType} call — tap to answer`
+    : inCall ? `On ${callType} call · ${roomId}`
+    : view === "waiting" ? `Room ${roomId} · waiting…`
+    : `Chat · ${roomId}`;
+  return (
+    <BackgroundDock>
+      <div style={{ ...ind.bar, ...(ringing ? ind.barRinging : null) }} role="region" aria-label="P2P Chat">
+        <button type="button" style={ind.title} onClick={onOpen} title="Open P2P Chat">
+          <span aria-hidden="true">{ringing || inCall ? (callType === "video" ? "📹" : "📞") : "💬"}</span>
+          <span style={ind.titleText}>{label}</span>
+          {unread > 0 && <span style={ind.badge}>{unread > 99 ? "99+" : unread}</span>}
+        </button>
+        {(ringing || inCall) && (
+          <button type="button" style={{ ...ind.btn, color: "#ff3366" }} onClick={onHangUp} title={ringing ? "Decline" : "Hang up"}>
+            <FaPhoneSlash size={12} />
+          </button>
+        )}
+        <button type="button" style={ind.btn} onClick={onLeave} title="Leave room">✕</button>
+      </div>
+    </BackgroundDock>
+  );
+}
+
+const ind = {
+  bar: {
+    display: "flex", alignItems: "center", gap: 4, maxWidth: 360, padding: 5,
+    background: "#111111", border: "1px solid #3a3a3a", borderRadius: 2,
+    boxShadow: "0 4px 16px rgba(0,0,0,0.5)", color: "#e8e8e8", fontFamily: "'Space Mono', monospace",
+  },
+  barRinging: { borderColor: "#00ff88", boxShadow: "0 0 0 2px rgba(0,255,136,0.25), 0 4px 16px rgba(0,0,0,0.5)" },
+  title: {
+    display: "flex", alignItems: "center", gap: 6, minWidth: 0, flex: 1, padding: "5px 6px",
+    background: "transparent", border: "none", color: "inherit", font: "inherit", fontSize: 12,
+    cursor: "pointer", textAlign: "left",
+  },
+  titleText: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  badge: {
+    flexShrink: 0, minWidth: 18, padding: "1px 5px", borderRadius: 9, background: "#00ff88",
+    color: "#0a0a0a", fontSize: 11, fontWeight: 700, textAlign: "center",
+  },
+  btn: {
+    flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center",
+    width: "2rem", height: "2rem", background: "transparent", border: "1px solid #3a3a3a",
+    borderRadius: 2, color: "#e8e8e8", cursor: "pointer", fontSize: 13,
+  },
+};
+
 export default function P2PChat() {
+  // Kept alive at the app root (Toolz registry `keepAlive`): the room, call
+  // and messages survive switching tools; a ChatIndicator stands in while
+  // another page is showing.
+  const onScreen = useKeepAliveActive();
+  const releaseInstance = useKeepAliveRelease();
+  const onScreenRef = useRef(onScreen);
+  onScreenRef.current = onScreen;
+  const [unread, setUnread] = useState(0);
+  useEffect(() => { if (onScreen) setUnread(0); }, [onScreen]);
+
   const [view, setView] = useState("home");
   const [joinInput, setJoinInput] = useState("");
   const [myId, setMyId] = useState("");
@@ -530,6 +595,7 @@ export default function P2PChat() {
 
       if (data.type === "file-start") {
         incomingTransfersRef.current.set(data.id, { chunks: new Array(data.totalChunks), received: 0, totalChunks: data.totalChunks });
+        if (!onScreenRef.current) setUnread(n => n + 1);
         setMessages(prev => [...prev, {
           id: data.id, type: "file", from: "them", ts: new Date(),
           name: data.name, mime: data.mime, size: data.size, data: null, progress: 0,
@@ -556,6 +622,7 @@ export default function P2PChat() {
       }
 
       const msgId = data.id || Date.now();
+      if (!onScreenRef.current) setUnread(n => n + 1);
       setMessages(prev => [...prev, { ...data, from: "them", ts: new Date(), id: msgId }]);
       conn.send({ type: "delivered", id: msgId });
     });
@@ -617,19 +684,26 @@ export default function P2PChat() {
   };
 
   // Auto-join when opened via a shared link (/toolz/chat?room=XXXXXX) — the
-  // whole point is that the recipient shouldn't have to type anything.
-  const autoJoinedRef = useRef(false);
+  // whole point is that the recipient shouldn't have to type anything. The
+  // instance is kept alive, so a link can also arrive while it's already
+  // mounted: each room code is handled once (leaving a room must not rejoin
+  // it just because the URL still has ?room=), and only while on screen —
+  // when hidden, the URL belongs to another page.
+  const [searchParams] = useSearchParams();
+  const roomParam = onScreen ? searchParams.get("room")?.toUpperCase() || null : null;
+  const handledRoomRef = useRef(null);
   useEffect(() => {
-    if (autoJoinedRef.current) return;
-    autoJoinedRef.current = true;
-    const room = new URLSearchParams(window.location.search).get("room");
-    if (room) {
-      setShowJoin(true);
-      setJoinInput(room.toUpperCase());
-      joinRoom(room);
+    if (!roomParam || handledRoomRef.current === roomParam) return;
+    handledRoomRef.current = roomParam;
+    if (view !== "home") {
+      setStatusMsg(`Leave this room to join ${roomParam}.`);
+      return;
     }
+    setShowJoin(true);
+    setJoinInput(roomParam);
+    joinRoom(roomParam);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [roomParam]);
 
   const sendTypingSignal = useCallback((value) => {
     connRef.current?.open && connRef.current.send({ type: "typing", value });
@@ -668,9 +742,30 @@ export default function P2PChat() {
     setShowJoin(false); setStatusMsg(""); setPeerTyping(false);
   };
 
-  // Safety net for a closed tab / unmount while a discoverable room is still
-  // waiting — the directory entry also expires on its own via TTL either way.
-  useEffect(() => () => stopRoomHeartbeat(peerRef.current?.id), [stopRoomHeartbeat]);
+  // Full teardown on unmount (the background indicator's "Leave", or the
+  // instance being released): never leave a hot mic/camera or an open peer
+  // behind. Also drops a still-waiting discoverable room from the directory
+  // (the entry would expire via TTL anyway).
+  useEffect(() => () => {
+    stopRoomHeartbeat(peerRef.current?.id);
+    endCall();
+    connRef.current?.close();
+    peerRef.current?.destroy();
+    connRef.current = null; peerRef.current = null;
+  }, [stopRoomHeartbeat, endCall]);
+
+  const indicator = !onScreen && view !== "home" && (
+    <ChatIndicator
+      view={view}
+      roomId={myId}
+      unread={unread}
+      callState={callState}
+      callType={callType}
+      onOpen={() => navigate("/toolz/chat")}
+      onHangUp={callState === "incoming" ? declineCall : endCall}
+      onLeave={releaseInstance}
+    />
+  );
 
   const grouped = useMemo(() => messages.map((msg, i) => ({
     ...msg,
@@ -743,6 +838,7 @@ export default function P2PChat() {
     return (
       <div style={s.page} className="p2pchat-root">
         <style>{globalStyles}</style>
+        {indicator}
         <div style={s.card}>
           <h2 style={s.title}>Room ready</h2>
           <p style={s.muted}>Share the link or QR code below — whoever opens it connects instantly, no typing needed.</p>
@@ -779,6 +875,7 @@ export default function P2PChat() {
   return (
     <div style={s.chatContainer} className="p2pchat-root">
       <style>{globalStyles}</style>
+      {indicator}
 
       <div style={s.chatHeader}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>

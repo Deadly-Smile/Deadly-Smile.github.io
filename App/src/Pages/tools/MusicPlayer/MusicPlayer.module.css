@@ -342,8 +342,8 @@
   margin-bottom: 0.75rem;
 }
 
-/* Background mini-player. Lives on <body>, outside .tk-root, so it carries
-   its own copy of the tk palette. */
+/* Background mini-player. Lives in the KeepAlive dock, outside .tk-root, so
+   it carries its own copy of the tk palette. The dock positions it. */
 .miniPlayer {
   --tk-surface: #111111;
   --tk-border-bright: #3a3a3a;
@@ -352,14 +352,10 @@
   --tk-mono: 'Space Mono', monospace;
   --tk-radius: 2px;
 
-  position: fixed;
-  left: 16px;
-  bottom: 16px;
-  z-index: 1000;
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  max-width: min(360px, calc(100vw - 32px));
+  max-width: 360px;
   padding: 0.35rem;
   background: var(--tk-surface);
   border: 1px solid var(--tk-border-bright);
@@ -367,11 +363,6 @@
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
   color: var(--tk-text);
   font-family: var(--tk-mono);
-}
-
-/* The WhiteBoard keeps its status pill in the bottom-left corner. */
-.miniPlayerRaised {
-  bottom: 64px;
 }
 
 .miniTitle {
