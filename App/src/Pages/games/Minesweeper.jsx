@@ -1,31 +1,43 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { ActionBtn, StatusBar } from '../tools/tk-shared';
+import { usePersistentState } from '../../Utils/usePersistentState';
+
+// Pre-usePersistentState best times, carried over on first load.
+const legacyBestTimes = () => {
+  try {
+    const s = JSON.parse(localStorage.getItem('minesweeperBestTimes'));
+    return s && typeof s === 'object' ? s : {};
+  } catch { return {}; }
+};
+
+const initialStatus = (board, gameActive, gameOver, won, time) =>
+  gameOver ? { msg: '💣 Hit a mine! Game Over!', type: 'err' }
+  : won ? { msg: `✓ You won! Time: ${time}s`, type: 'ok' }
+  : board && gameActive ? { msg: 'Game resumed! Left-click to reveal, right-click to flag.', type: 'ok' }
+  : { msg: "Select difficulty and click START", type: "" };
 
 export default function Minesweeper() {
-  const [difficulty, setDifficulty] = useState('easy');
-  const [board, setBoard] = useState(null);
-  const [gameActive, setGameActive] = useState(false);
-  const [gameOver, setGameOver] = useState(false);
-  const [won, setWon] = useState(false);
-  const [time, setTime] = useState(0);
-  const [bestTime, setBestTime] = useState({});
-  const [status, setStatus] = useState({ msg: "Select difficulty and click START", type: "" });
-  const timerRef = useRef(null);
+  // The board in progress (and its elapsed time) survives leaving the game.
+  const [difficulty, setDifficulty] = usePersistentState('game:minesweeper:difficulty', 'easy');
+  const [board, setBoard] = usePersistentState('game:minesweeper:board', null);
+  const [gameActive, setGameActive] = usePersistentState('game:minesweeper:gameActive', false);
+  const [gameOver, setGameOver] = usePersistentState('game:minesweeper:gameOver', false);
+  const [won, setWon] = usePersistentState('game:minesweeper:won', false);
+  const [time, setTime] = usePersistentState('game:minesweeper:time', 0);
+  const [bestTime, setBestTime] = usePersistentState('game:minesweeper:bestTimes', legacyBestTimes);
+  const [status, setStatus] = useState(() => initialStatus(board, gameActive, gameOver, won, time));
 
-  // Load best times from localStorage on mount
+  // Ticks only while a game is live, so it also resumes after coming back.
   useEffect(() => {
-    const savedBestTimes = localStorage.getItem('minesweeperBestTimes');
-    if (savedBestTimes) {
-      setBestTime(JSON.parse(savedBestTimes));
-    }
-  }, []);
+    if (!gameActive) return;
+    const t = setInterval(() => setTime((t) => t + 1), 1000);
+    return () => clearInterval(t);
+  }, [gameActive, setTime]);
 
   const saveBestTime = (difficulty, newTime) => {
     const currentBest = bestTime[difficulty] || Infinity;
     if (newTime < currentBest) {
-      const updatedBestTimes = { ...bestTime, [difficulty]: newTime };
-      setBestTime(updatedBestTimes);
-      localStorage.setItem('minesweeperBestTimes', JSON.stringify(updatedBestTimes));
+      setBestTime({ ...bestTime, [difficulty]: newTime });
     }
   };
 
@@ -135,7 +147,6 @@ export default function Minesweeper() {
       setGameActive(false);
       setGameOver(true);
       setStatus({ msg: '💣 Hit a mine! Game Over!', type: 'err' });
-      clearInterval(timerRef.current);
       // Reveal all mines
       const config = DIFFICULTIES[difficulty];
       for (let i = 0; i < config.rows; i++) {
@@ -148,7 +159,6 @@ export default function Minesweeper() {
       setWon(true);
       saveBestTime(difficulty, time);
       setStatus({ msg: `✓ You won! Time: ${time}s`, type: 'ok' });
-      clearInterval(timerRef.current);
     }
 
     setBoard(newBoard);
@@ -172,14 +182,9 @@ export default function Minesweeper() {
     setWon(false);
     setTime(0);
     setStatus({ msg: 'Game started! Left-click to reveal, right-click to flag.', type: 'ok' });
-
-    timerRef.current = setInterval(() => {
-      setTime((t) => t + 1);
-    }, 1000);
   };
 
   const resetGame = () => {
-    clearInterval(timerRef.current);
     setBoard(null);
     setGameActive(false);
     setGameOver(false);

@@ -1,12 +1,13 @@
 import { useState, useRef } from 'react';
 import { CopyBtn, ActionBtn, StatusBar } from './tk-shared';
+import { usePersistentState } from '../../Utils/usePersistentState';
 
 export default function QRCodeGenerator() {
-  const [input, setInput] = useState('https://example.com');
-  const [qrUrl, setQrUrl] = useState('');
+  const [input, setInput] = usePersistentState('tool:qr:input', 'https://example.com');
+  const [qrUrl, setQrUrl] = usePersistentState('tool:qr:url', '');
   const [status, setStatus] = useState({ msg: "Ready.", type: "" });
-  const [size, setSize] = useState(300);
-  const [errorCorrection, setErrorCorrection] = useState('M');
+  const [size, setSize] = usePersistentState('tool:qr:size', 300);
+  const [errorCorrection, setErrorCorrection] = usePersistentState('tool:qr:ecc', 'M');
   const canvasRef = useRef(null);
 
   const generateQRCode = () => {

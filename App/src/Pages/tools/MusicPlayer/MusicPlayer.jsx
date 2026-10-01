@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useReducer, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useCallback, useEffect, useLayoutEffect, useReducer, useState } from "react";
+import { useSearchParams } from "../../../Utils/router";
+import { usePersistentState } from "../../../Utils/usePersistentState";
 import { StatusBar } from "../tk-shared.jsx";
 import { libraryReducer, initialLibraryState } from "./libraryReducer";
 import {
@@ -38,7 +39,13 @@ export default function MusicPlayer() {
   const [searchParams] = useSearchParams();
   const autoJoinRoomId = searchParams.get("sync")?.toUpperCase() || null;
   const [library, dispatch] = useReducer(libraryReducer, initialLibraryState);
-  const [activeTab, setActiveTab] = useState(autoJoinRoomId ? "sync" : "library");
+  // Volume/shuffle/repeat/last track persist via ./storage; this is just the open tab.
+  const [storedTab, setActiveTab] = usePersistentState("tool:music_player:tab", autoJoinRoomId ? "sync" : "library");
+  const activeTab = TABS.some((t) => t.id === storedTab) ? storedTab : "library";
+  // A ?sync= invite link always lands on the Sync tab, whatever was open last (layout effect: applied before first paint, no flash).
+  useLayoutEffect(() => {
+    if (autoJoinRoomId) setActiveTab("sync");
+  }, [autoJoinRoomId, setActiveTab]);
   const [repeatMode, setRepeatMode] = useState(() => getSettings().repeatMode);
   const [status, setStatus] = useState(null);
 

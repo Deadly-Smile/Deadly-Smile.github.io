@@ -25,7 +25,7 @@ const FALLBACK_ICE_SERVERS = [
 
 // Fetches TURN credentials from the Vercel serverless endpoint, falling back to
 // FALLBACK_ICE_SERVERS on any failure so P2P features degrade gracefully instead
-// of breaking. Shared by every WebRTC-based tool (Chat, QuestionBank/MusicPlayer sync).
+// of breaking. Shared by every WebRTC-based tool (Chat, MusicPlayer sync, games).
 export async function getIceServers() {
   try {
     const res = await fetch("/api/turn-credentials");

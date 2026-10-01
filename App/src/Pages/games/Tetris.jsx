@@ -1,5 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 import { ActionBtn, StatusBar } from '../tools/tk-shared';
+import { usePersistentState, readPersisted, writePersisted, removePersisted } from '../../Utils/usePersistentState';
+
+const SAVE_KEY = 'game:tetris:save';
+
+// Pre-usePersistentState high score, carried over on first load.
+const legacyHighScore = () => {
+  try { return parseInt(localStorage.getItem('tetrisHighScore'), 10) || 0; } catch { return 0; }
+};
 
 const TETRIS_BLOCKS = {
   I: {
@@ -43,15 +51,27 @@ const GRID_WIDTH = 12;
 const GRID_HEIGHT = 30;
 const CELL_SIZE = 15;
 
+const isValidSave = (s) =>
+  s && Array.isArray(s.grid) && s.grid.length === GRID_HEIGHT && s.grid.every(r => Array.isArray(r) && r.length === GRID_WIDTH) &&
+  s.currentBlock?.pattern && s.nextBlock?.pattern && Number.isFinite(s.score);
+
 export default function Tetris() {
   const canvasRef = useRef(null);
   const nextCanvasRef = useRef(null);
-  const [score, setScore] = useState(0);
-  const [highScore, setHighScore] = useState(0);
-  const [level, setLevel] = useState(1);
+  // An unfinished game left behind when the player navigated away; resumes paused.
+  const [savedGame, setSavedGame] = useState(() => {
+    const s = readPersisted(SAVE_KEY, null);
+    return isValidSave(s) ? s : null;
+  });
+  const [score, setScore] = useState(() => savedGame?.score ?? 0);
+  const [highScore, setHighScore] = usePersistentState('game:tetris:highScore', legacyHighScore);
+  const [level, setLevel] = useState(() => savedGame?.level ?? 1);
   const [gameActive, setGameActive] = useState(false);
-  const [status, setStatus] = useState({ msg: "Click START to begin", type: "" });
-  const [nextBlock, setNextBlock] = useState(null);
+  const [status, setStatus] = useState(() => savedGame
+    ? { msg: "Game paused. Click RESUME to continue", type: "" }
+    : { msg: "Click START to begin", type: "" });
+  const [nextBlock, setNextBlock] = useState(() => savedGame?.nextBlock ?? null);
+  const stopLoopRef = useRef(null); // set while a game loop is running
   const gameSpeedRef = useRef(500);
 
   const gameStateRef = useRef({
@@ -67,20 +87,7 @@ export default function Tetris() {
     gameSpeed: 500,
   });
 
-  // Load high score from localStorage on mount
-  useEffect(() => {
-    const savedHighScore = localStorage.getItem('tetrisHighScore');
-    if (savedHighScore) {
-      setHighScore(parseInt(savedHighScore, 10));
-    }
-  }, []);
-
-  const saveHighScore = (newScore) => {
-    if (newScore > highScore) {
-      setHighScore(newScore);
-      localStorage.setItem('tetrisHighScore', newScore.toString());
-    }
-  };
+  const saveHighScore = (newScore) => setHighScore(h => Math.max(h, newScore));
 
   const getRandomBlock = () => {
     const blockTypes = Object.keys(TETRIS_BLOCKS);
@@ -270,19 +277,38 @@ export default function Tetris() {
     ctx.strokeRect(0, 0, canvas.width, canvas.height);
   };
 
+  // Show the paused board of a restored game.
+  useEffect(() => {
+    if (savedGame) drawGame(savedGame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // drawNextBlock reads the `nextBlock` state, so redraw once it's committed.
+  useEffect(() => {
+    if (savedGame) drawNextBlock();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nextBlock]);
+
+  // Leaving mid-game stops the loop and stores a snapshot to resume from.
+  useEffect(() => {
+    const snapshot = () => {
+      const state = gameStateRef.current;
+      if (!stopLoopRef.current || state.gameOver) return;
+      writePersisted(SAVE_KEY, state);
+    };
+    window.addEventListener('pagehide', snapshot);
+    return () => {
+      window.removeEventListener('pagehide', snapshot);
+      snapshot();
+      stopLoopRef.current?.();
+    };
+  }, []);
+
   const startGame = () => {
-    setGameActive(true);
-    setScore(0);
-    setLevel(1);
-    setStatus({ msg: "Use arrow keys to move, Z/X to rotate. Space to drop!", type: "ok" });
-
-    const initialBlock = getRandomBlock();
-    const nextBlockToDraw = getRandomBlock();
-
-    gameStateRef.current = {
+    runGame({
       grid: Array(GRID_HEIGHT).fill(null).map(() => Array(GRID_WIDTH).fill(null)),
-      currentBlock: initialBlock,
-      nextBlock: nextBlockToDraw,
+      currentBlock: getRandomBlock(),
+      nextBlock: getRandomBlock(),
       currentX: Math.floor(GRID_WIDTH / 2) - 2,
       currentY: 0,
       score: 0,
@@ -290,10 +316,25 @@ export default function Tetris() {
       linesCleared: 0,
       gameOver: false,
       gameSpeed: 500,
-    };
+    });
+  };
 
-    gameSpeedRef.current = 500;
-    setNextBlock(nextBlockToDraw);
+  const resumeGame = () => {
+    if (savedGame) runGame({ ...savedGame, gameOver: false });
+  };
+
+  const runGame = (initialState) => {
+    stopLoopRef.current?.();
+    removePersisted(SAVE_KEY);
+    setSavedGame(null);
+    setGameActive(true);
+    setScore(initialState.score);
+    setLevel(initialState.level);
+    setStatus({ msg: "Use arrow keys to move, Z/X to rotate. Space to drop!", type: "ok" });
+
+    gameStateRef.current = initialState;
+    gameSpeedRef.current = initialState.gameSpeed;
+    setNextBlock(initialState.nextBlock);
 
     // Draw initial game state
     if (canvasRef.current) {
@@ -393,8 +434,7 @@ export default function Tetris() {
           setGameActive(false);
           saveHighScore(state.score);
           setStatus({ msg: `Game Over! Final Score: ${state.score}`, type: "err" });
-          window.removeEventListener('keydown', handleKeyDown);
-          clearInterval(gameLoop);
+          stopLoopRef.current?.();
           return;
         }
       }
@@ -402,9 +442,18 @@ export default function Tetris() {
       drawGame(state);
       drawNextBlock();
     }, gameSpeedRef.current);
+
+    stopLoopRef.current = () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      clearInterval(gameLoop);
+      stopLoopRef.current = null;
+    };
   };
 
   const resetGame = () => {
+    stopLoopRef.current?.();
+    removePersisted(SAVE_KEY);
+    setSavedGame(null);
     setGameActive(false);
     setScore(0);
     setLevel(1);
@@ -452,8 +501,11 @@ export default function Tetris() {
       </div>
 
       <div className="flex gap-3">
+        {savedGame && !gameActive && (
+          <ActionBtn onClick={resumeGame} className="bg-cyan-500 hover:bg-cyan-400">▶ RESUME</ActionBtn>
+        )}
         <ActionBtn onClick={startGame} disabled={gameActive} className="bg-cyan-500 hover:bg-cyan-400">
-          {gameActive ? '▶ PLAYING' : '▶ START'}
+          {gameActive ? '▶ PLAYING' : savedGame ? '▶ NEW GAME' : '▶ START'}
         </ActionBtn>
         <ActionBtn onClick={resetGame} className="bg-red-500 hover:bg-red-400">
           ■ RESET

@@ -24,10 +24,12 @@ import {
 import { IoGameController } from "react-icons/io5";
 import { FaJava } from "react-icons/fa";
 import { BiLogoReact } from "react-icons/bi";
-import { Link } from "react-router-dom";
+import { Link } from "../Utils/Link";
+import { useDocumentTitle } from "../Utils/router";
 import Footer from "./components/Footer";
 
 const Home = () => {
+  useDocumentTitle("About Anik");
   return (
     <div className="relative">
       <div className="bg-black opacity-10 h-40 rounded-b-full"></div>

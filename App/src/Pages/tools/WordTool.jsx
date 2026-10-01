@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { CopyBtn, ActionBtn } from "./tk-shared";
 import words from "an-array-of-english-words";
+import { usePersistentState } from "../../Utils/usePersistentState";
 
 const ENGLISH_WORDS = words;
 const FILLERS = ["the","a","an","in","on","of","with","and","but","that","which","while","from","into","through","between","among","during","along","under"];
@@ -154,8 +155,8 @@ function WordLookupModal({ word, onClose }) {
 
 // ─── Generate Text Panel ──────────────────────────────────────────────────────
 function GeneratePanel({ onInsert }) {
-  const [genMode, setGenMode] = useState("sentences");
-  const [genCount, setGenCount] = useState(3);
+  const [genMode, setGenMode] = usePersistentState("tool:word:genMode", "sentences");
+  const [genCount, setGenCount] = usePersistentState("tool:word:genCount", 3);
   const [preview, setPreview] = useState("");
 
   const generate = () => {
@@ -226,7 +227,7 @@ function GeneratePanel({ onInsert }) {
               background:"var(--tk-accent)", color:"var(--tk-bg)", fontWeight:600,
             }}>↩ Insert</button>
             <button onClick={() => onInsert(preview, true)} style={{
-              padding:"0.45rem 0.75rem", fontSize:"0.8rem", cursor:"pointer",
+              padding:"0.45rem 0.75rem", cursor:"pointer",
               borderRadius:"var(--tk-radius)", border:"1px solid var(--tk-border)",
               background:"transparent", color:"var(--tk-text-dim)", fontSize:"0.75rem",
             }}>+ Append</button>
@@ -331,11 +332,11 @@ function RandomWordCard({ onLookup }) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function WordTool() {
-  const [text, setText] = useState("");
+  const [text, setText] = usePersistentState("tool:word:text", "");
   const [isMaximized, setIsMaximized] = useState(false);
   const [lookupWord, setLookupWord] = useState(null);
   const [searchInput, setSearchInput] = useState("");
-  const [activeTab, setActiveTab] = useState("stats"); // 'stats' | 'generate'
+  const [activeTab, setActiveTab] = usePersistentState("tool:word:tab", "stats"); // 'stats' | 'generate'
   const textareaRef = useRef(null);
 
   useEffect(() => {

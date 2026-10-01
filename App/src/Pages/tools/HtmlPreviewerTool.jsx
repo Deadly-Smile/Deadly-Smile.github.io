@@ -6,9 +6,10 @@ import { html as htmlLang } from "@codemirror/lang-html";
 import { css as cssLang } from "@codemirror/lang-css";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { CopyBtn } from "./tk-shared";
+import { usePersistentState } from "../../Utils/usePersistentState";
 
 export default function HtmlPreviewerTool() {
-  const [html, setHtml] = useState(`<div class="container">
+  const [html, setHtml] = usePersistentState("tool:html:html", `<div class="container">
   <h1>Hello World</h1>
   <p>Edit the panels on the left to see changes in real-time</p>
 </div>
@@ -21,7 +22,7 @@ export default function HtmlPreviewerTool() {
 
 `);
   
-  const [css, setCss] = useState(`* {
+  const [css, setCss] = usePersistentState("tool:html:css", `* {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
@@ -56,7 +57,7 @@ p {
   max-width: 600px;
 }`);
   
-  const [js, setJs] = useState(`console.log('HTML Previewer loaded!');
+  const [js, setJs] = usePersistentState("tool:html:js", `console.log('HTML Previewer loaded!');
 
 // Add interactivity here
 document.addEventListener('DOMContentLoaded', () => {
@@ -75,8 +76,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const [refreshKey, setRefreshKey] = useState(0);
   const [logs, setLogs] = useState([]);
-  const [cssOpen, setCssOpen] = useState(true);
-  const [jsOpen, setJsOpen] = useState(true);
+  const [cssOpen, setCssOpen] = usePersistentState("tool:html:cssOpen", true);
+  const [jsOpen, setJsOpen] = usePersistentState("tool:html:jsOpen", true);
   const iframeRef = useRef(null);
   const htmlEditorRef = useRef(null);
   const cssEditorRef = useRef(null);
@@ -304,18 +305,19 @@ ${js}
               </span>
               CSS
             </button>
-            {cssOpen && (
-              <div
-                ref={cssEditorRef}
-                style={{
-                  width: "100%",
-                  height: "180px",
-                  border: "1px solid #333",
-                  borderRadius: "4px",
-                  overflow: "hidden",
-                }}
-              />
-            )}
+            {/* Always mounted (hidden when collapsed): the CodeMirror view is created
+                once on mount, so unmounting this div would leave it detached. */}
+            <div
+              ref={cssEditorRef}
+              style={{
+                display: cssOpen ? "block" : "none",
+                width: "100%",
+                height: "180px",
+                border: "1px solid #333",
+                borderRadius: "4px",
+                overflow: "hidden",
+              }}
+            />
           </div>
 
           {/* JavaScript - Collapsible */}
@@ -343,18 +345,19 @@ ${js}
               </span>
               JAVASCRIPT
             </button>
-            {jsOpen && (
-              <div
-                ref={jsEditorRef}
-                style={{
-                  width: "100%",
-                  height: "180px",
-                  border: "1px solid #333",
-                  borderRadius: "4px",
-                  overflow: "hidden",
-                }}
-              />
-            )}
+            {/* Always mounted (hidden when collapsed): the CodeMirror view is created
+                once on mount, so unmounting this div would leave it detached. */}
+            <div
+              ref={jsEditorRef}
+              style={{
+                display: jsOpen ? "block" : "none",
+                width: "100%",
+                height: "180px",
+                border: "1px solid #333",
+                borderRadius: "4px",
+                overflow: "hidden",
+              }}
+            />
           </div>
         </div>
 

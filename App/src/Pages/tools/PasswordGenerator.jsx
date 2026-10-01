@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { CopyBtn, ActionBtn, StatusBar } from './tk-shared';
+import { usePersistentState } from '../../Utils/usePersistentState';
 
 // Common short, readable English words grouped by category for variety
 const ADJECTIVES = [
@@ -99,23 +100,24 @@ function scorePassword(pwd) {
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function PasswordGenerator() {
   // Mode: 'char' | 'memorable' | 'wordOnly'
-  const [mode, setMode] = useState('char');
+  const [mode, setMode] = usePersistentState('tool:pass:mode', 'char');
 
   // Char mode
-  const [length, setLength]           = useState(16);
-  const [useUppercase, setUseUppercase] = useState(true);
-  const [useLowercase, setUseLowercase] = useState(true);
-  const [useNumbers, setUseNumbers]   = useState(true);
-  const [useSymbols, setUseSymbols]   = useState(true);
+  const [length, setLength]           = usePersistentState('tool:pass:length', 16);
+  const [useUppercase, setUseUppercase] = usePersistentState('tool:pass:upper', true);
+  const [useLowercase, setUseLowercase] = usePersistentState('tool:pass:lower', true);
+  const [useNumbers, setUseNumbers]   = usePersistentState('tool:pass:numbers', true);
+  const [useSymbols, setUseSymbols]   = usePersistentState('tool:pass:symbols', true);
 
   // Memorable / word-only shared
-  const [wordCount, setWordCount]     = useState(3);
-  const [separator, setSeparator]     = useState('-');
+  const [wordCount, setWordCount]     = usePersistentState('tool:pass:wordCount', 3);
+  const [separator, setSeparator]     = usePersistentState('tool:pass:separator', '-');
 
   // Memorable extras
-  const [addNumber, setAddNumber]     = useState(true);
-  const [addSymbol, setAddSymbol]     = useState(true);
+  const [addNumber, setAddNumber]     = usePersistentState('tool:pass:addNumber', true);
+  const [addSymbol, setAddSymbol]     = usePersistentState('tool:pass:addSymbol', true);
 
+  // The generated password itself is deliberately never persisted.
   const [password, setPassword] = useState('');
   const [strength, setStrength] = useState(null);
   const [status, setStatus]     = useState({ msg: 'Ready.', type: '' });

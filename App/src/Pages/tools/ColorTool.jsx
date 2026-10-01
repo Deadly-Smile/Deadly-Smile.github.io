@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { CopySmall } from "./tk-shared";
+import { usePersistentState } from "../../Utils/usePersistentState";
 
 function hexToRgb(hex) { return [parseInt(hex.slice(1,3),16),parseInt(hex.slice(3,5),16),parseInt(hex.slice(5,7),16)]; }
 function rgbToHsl(r,g,b) {
@@ -21,8 +22,8 @@ const TW_COLORS={'#ef4444':'red-500','#f97316':'orange-500','#eab308':'yellow-50
 function nearestTailwind(r,g,b){let best="custom",bd=Infinity;Object.entries(TW_COLORS).forEach(([hex,name])=>{const tr=parseInt(hex.slice(1,3),16),tg=parseInt(hex.slice(3,5),16),tb=parseInt(hex.slice(5,7),16);const d=Math.sqrt((r-tr)**2+(g-tg)**2+(b-tb)**2);if(d<bd){bd=d;best=name;}});return bd<80?best:"custom";}
 
 export default function ColorTool() {
-  const [hex,setHex]=useState("#00ff88");
-  const [hexInput,setHexInput]=useState("#00ff88");
+  const [hex,setHex]=usePersistentState("tool:color:hex","#00ff88");
+  const [hexInput,setHexInput]=useState(()=>hex.toUpperCase());
   const nativeRef=useRef();
   const validHex=/^#[0-9a-f]{6}$/i.test(hex);
   const [r,g,b]=validHex?hexToRgb(hex):[0,255,136];

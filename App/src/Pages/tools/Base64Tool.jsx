@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import { CopyBtn, ActionBtn, StatusBar, SplitPane, PaneLabel } from "./tk-shared";
+import { usePersistentState } from "../../Utils/usePersistentState";
 
 export default function Base64Tool() {
-  const [plain, setPlain]   = useState("");
-  const [b64,   setB64]     = useState("");
+  const [plain, setPlain]   = usePersistentState("tool:base64:plain", "");
+  const [b64,   setB64]     = usePersistentState("tool:base64:b64", "");
   const [status, setStatus] = useState({ msg: "Ready.", type: "" });
   const [isMaximized, setIsMaximized] = useState(false);
-  const b64Ref = useRef("");
+  const b64Ref = useRef(b64);
 
   const encode = () => {
     try {

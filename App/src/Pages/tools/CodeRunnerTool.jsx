@@ -11,6 +11,7 @@ import { Modal, InputModal, useModal, ConfirmModal } from "../../Utils/Modal";
 import { Toast, showToast } from "../../Utils/Toast";
 import { createFileId } from "../../Helper/generator";
 import { getAllTabs, saveAllTabs, getActiveTabId, setActiveTabId, saveFile, fileExists, getSavedFiles, deleteFile, renameFile } from "../../Helper/storageUtils";
+import { usePersistentState } from "../../Utils/usePersistentState";
 import { runScript } from "../../Helper/sandboxedRunner";
 
 const STORAGE_KEY_PREFIX = "coderunner_";
@@ -22,7 +23,7 @@ const LANGUAGES = {
   },
   cpp: {
     label:"C++", abbr:"C++",
-    run: async (code, pushLine) => new Promise(async resolve => {
+    run: async (code, pushLine) => {
       try {
         const response = await fetch("https://wandbox.org/api/compile.json", {
           method: "POST",
@@ -40,11 +41,11 @@ const LANGUAGES = {
         if (result.program_output && result.program_output.trim()) { result.program_output.split("\n").filter(l=>l.trim()).forEach(line=>pushLine({type:"log",text:line})); hasOutput = true; }
         if (result.program_error && result.program_error.trim()) { pushLine({type:"error",text:result.program_error}); hasOutput = true; }
         if (!hasOutput && result.status === "0") { pushLine({type:"log",text:"(Program executed successfully with no output)"}); }
-        resolve({});
+        return {};
       } catch(e) {
-        resolve({error:`Error: ${e.message}`});
+        return {error:`Error: ${e.message}`};
       }
-    }),
+    },
   },
 };
 
@@ -75,10 +76,10 @@ export default function CodeRunnerTool() {
   const [execTime, setExecTime] = useState(null);
   const [showSnippets, setShowSnippets] = useState(false);
   const [showNewTabMenu, setShowNewTabMenu] = useState(false);
-  const [fontSize, setFontSize] = useState(13);
-  const [wordWrap, setWordWrap] = useState(true);
-  const [inputOpen, setInputOpen] = useState(true);
-  const [outputOpen, setOutputOpen] = useState(true);
+  const [fontSize, setFontSize] = usePersistentState("tool:code:fontSize", 13);
+  const [wordWrap, setWordWrap] = usePersistentState("tool:code:wordWrap", true);
+  const [inputOpen, setInputOpen] = usePersistentState("tool:code:inputOpen", true);
+  const [outputOpen, setOutputOpen] = usePersistentState("tool:code:outputOpen", true);
   const [showSavedFiles, setShowSavedFiles] = useState(false);
   const [savedFilesCache, setSavedFilesCache] = useState({});
 
@@ -495,8 +496,10 @@ export default function CodeRunnerTool() {
               <span style={{fontSize:"0.55rem",color:"var(--tk-text-dim)"}}>{code.split("\n").length} lines</span>
             </button>
 
-            {inputOpen && (
-              <div style={{padding:"0.8rem",display:"flex",flexDirection:"column",gap:"0.4rem"}}>
+            {/* Always mounted (hidden when collapsed): the CodeMirror view lives in
+                editorRef and is only rebuilt on language change, so unmounting
+                this panel would leave it detached. */}
+            <div style={{padding:"0.8rem",display:inputOpen?"flex":"none",flexDirection:"column",gap:"0.4rem"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingBottom:"0.4rem",borderBottom:"1px solid var(--tk-border)"}}>
                   <div style={{display:"flex",alignItems:"center",gap:"0.6rem"}}>
                     <div style={{display:"flex",alignItems:"center",gap:4}}>
@@ -530,7 +533,6 @@ export default function CodeRunnerTool() {
                   <span>Ctrl+Enter to run</span>
                 </div>
               </div>
-            )}
           </div>
 
           <div style={{border:"1px solid var(--tk-border)",borderRadius:"var(--tk-radius)",overflow:"hidden",background:"var(--tk-surface)"}}>

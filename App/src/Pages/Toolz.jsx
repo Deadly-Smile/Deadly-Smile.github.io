@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { navigate, useSearchParams, useDocumentTitle } from "../Utils/router";
+import { Link, Redirect } from "../Utils/Link";
 import "../toolkit.css";
 
 import JsonTool        from "./tools/JsonTool";
@@ -228,17 +229,31 @@ function ToolLauncher({ config, onPick }) {
 
 // ─── Toolz ────────────────────────────────────────────────────────────────────
 
-const Toolz = ({ embedded = false }) => {
-  const [searchParams] = useSearchParams();
-  const [active,       setActive]       = useState(() => {
-    const tool = searchParams.get("tool");
-    return tool && ALL_TOOLS.some(t => t.id === tool) ? tool : null;
-  });
+// The active tool lives in the URL: /toolz/:toolId as a page, or ?tool= when
+// embedded in the WhiteBoard (which owns the path there).
+const Toolz = ({ embedded = false, toolId = null }) => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requested = embedded ? searchParams.get("tool") : toolId;
+  const active = requested && ALL_TOOLS.some(t => t.id === requested) ? requested : null;
   const [drawerOpen,   setDrawerOpen]   = useState(false);
   const [clock,        setClock]        = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [config,       setConfig]       = useState(loadConfig);
-  const navigate = useNavigate();
+
+  function setActive(id) {
+    if (embedded) {
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        if (id) next.set("tool", id); else next.delete("tool");
+        return next;
+      }, { replace: true });
+    } else {
+      navigate(id ? `/toolz/${id}` : "/toolz");
+    }
+  }
+
+  const activeLabel = ALL_TOOLS.find(t => t.id === active)?.label;
+  useDocumentTitle(embedded ? null : activeLabel ? `${activeLabel} · Toolz` : "Toolz");
 
   useEffect(() => {
     const tick = () => setClock(new Date().toTimeString().slice(0, 8));
@@ -276,6 +291,8 @@ const Toolz = ({ embedded = false }) => {
   }
 
   const ActiveTool = ALL_TOOLS.find(t => t.id === active)?.component;
+
+  if (!embedded && requested && !active) return <Redirect to="/toolz" />;
 
   // Strip components from tool list — ToolGroupSettings doesn't need them
   const toolMeta = ALL_TOOLS.map(({ id, label }) => ({ id, label }));
@@ -318,7 +335,7 @@ const Toolz = ({ embedded = false }) => {
         )}
       </div>
       <div className="tk-tool-section">
-        {ActiveTool ? <ActiveTool /> : <ToolLauncher config={config} onPick={pickTool} />}
+        {ActiveTool ? <ActiveTool key={active} /> : <ToolLauncher config={config} onPick={pickTool} />}
       </div>
     </main>
   );

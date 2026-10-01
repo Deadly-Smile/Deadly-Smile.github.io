@@ -25,3 +25,7 @@ dist-ssr
 
 # package-lock.json
 package-lock.json
+# Local env (secrets). .env.example is the committed template.
+.env
+.env.*
+!.env.example

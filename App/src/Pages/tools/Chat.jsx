@@ -5,6 +5,7 @@ import {
   FaMicrophone, FaMicrophoneSlash, FaDesktop,
 } from "react-icons/fa";
 import { getIceServers, generateRoomId, buildQrUrl, registerOpenRoom, unregisterOpenRoom, fetchOpenRooms } from "./tk-shared.jsx";
+import { usePersistentState } from "../../Utils/usePersistentState";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const CHUNK_SIZE = 16 * 1024;
@@ -200,7 +201,7 @@ function CopyButton({ text, label = "Copy ID" }) {
 }
 
 function buildShareLink(roomId) {
-  return `${window.location.origin}/toolz?tool=chat&room=${roomId}`;
+  return `${window.location.origin}/toolz/chat?room=${roomId}`;
 }
 
 function FileStagePreview({ file, onCancel, onConfirm }) {
@@ -322,7 +323,8 @@ export default function P2PChat() {
   const [statusMsg, setStatusMsg] = useState("");
   const [showJoin, setShowJoin] = useState(false);
   const [peerTyping, setPeerTyping] = useState(false);
-  const [discoverable, setDiscoverable] = useState(false);
+  // Only the host preference persists — rooms, peers and messages are per-session.
+  const [discoverable, setDiscoverable] = usePersistentState("tool:chat:discoverable", false);
   const [openRooms, setOpenRooms] = useState([]);
   const [roomsLoading, setRoomsLoading] = useState(false);
 
@@ -614,7 +616,7 @@ export default function P2PChat() {
     peer.on("error", (e) => setStatusMsg("Error: " + e.message));
   };
 
-  // Auto-join when opened via a shared link (?tool=chat&room=XXXXXX) — the
+  // Auto-join when opened via a shared link (/toolz/chat?room=XXXXXX) — the
   // whole point is that the recipient shouldn't have to type anything.
   const autoJoinedRef = useRef(false);
   useEffect(() => {

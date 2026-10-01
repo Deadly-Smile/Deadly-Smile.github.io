@@ -1,8 +1,9 @@
 import { useState, useRef } from 'react';
 import { CopyBtn, ActionBtn, StatusBar } from './tk-shared';
+import { usePersistentState } from '../../Utils/usePersistentState';
 
 export default function CronExpressionParser() {
-  const [expression, setExpression] = useState('0 12 * * *');
+  const [expression, setExpression] = usePersistentState('tool:cron:expression', '0 12 * * *');
   const [result, setResult] = useState(null);
   const [status, setStatus] = useState({ msg: "Ready.", type: "" });
   const resultRef = useRef("");

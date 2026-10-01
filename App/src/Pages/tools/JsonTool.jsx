@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { CopyBtn, ActionBtn, StatusBar, SplitPane, PaneLabel } from "./tk-shared";
+import { usePersistentState } from "../../Utils/usePersistentState";
 
 function countKeys(obj, n = 0) {
   if (typeof obj !== "object" || obj === null) return n;
@@ -10,7 +11,7 @@ function countKeys(obj, n = 0) {
 }
 
 export default function JsonTool() {
-  const [input,  setInput]  = useState("");
+  const [input,  setInput]  = usePersistentState("tool:json:input", "");
   const [output, setOutput] = useState("");
   const [status, setStatus] = useState({ msg: "Ready.", type: "" });
   const [isMaximized, setIsMaximized] = useState(false);

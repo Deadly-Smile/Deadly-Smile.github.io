@@ -1,27 +1,20 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { ActionBtn, StatusBar } from '../tools/tk-shared';
+import { usePersistentState } from '../../Utils/usePersistentState';
+
+// Pre-usePersistentState high score, carried over on first load.
+const legacyHighScore = () => {
+  try { return parseInt(localStorage.getItem('flappybirdHighScore'), 10) || 0; } catch { return 0; }
+};
 
 export default function FlappyBird() {
   const canvasRef = useRef(null);
   const [gameActive, setGameActive] = useState(false);
   const [score, setScore] = useState(0);
-  const [highScore, setHighScore] = useState(0);
+  const [highScore, setHighScore] = usePersistentState('game:flappy:highScore', legacyHighScore);
   const [status, setStatus] = useState({ msg: "Click or press SPACE to flap", type: "" });
 
-  // Load high score from localStorage on mount
-  useEffect(() => {
-    const savedHighScore = localStorage.getItem('flappybirdHighScore');
-    if (savedHighScore) {
-      setHighScore(parseInt(savedHighScore, 10));
-    }
-  }, []);
-
-  const saveHighScore = (newScore) => {
-    if (newScore > highScore) {
-      setHighScore(newScore);
-      localStorage.setItem('flappybirdHighScore', newScore.toString());
-    }
-  };
+  const saveHighScore = (newScore) => setHighScore(h => Math.max(h, newScore));
   const gameStateRef = useRef({
     bird: { x: 50, y: 150, width: 20, height: 20, velocity: 0 },
     pipes: [],

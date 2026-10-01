@@ -8,6 +8,7 @@ import { runFunctionAgainstInputs } from "../../Helper/sandboxedRunner";
 import { deepEqual } from "../../Helper/deepEqual";
 import { getSavedCode, saveCode, getSolvedSet, markSolved } from "../../Helper/practiceStorage";
 import { Toast, showToast } from "../../Utils/Toast";
+import { usePersistentState } from "../../Utils/usePersistentState";
 
 const DIFFICULTIES = ["Easy", "Medium", "Hard"];
 
@@ -24,9 +25,10 @@ function fmtValue(v) {
 }
 
 export default function PracticeTool() {
-  const [query, setQuery] = useState("");
-  const [difficultyFilter, setDifficultyFilter] = useState(null);
-  const [activeId, setActiveId] = useState(PROBLEMS[0]?.id ?? null);
+  // Code and solved set persist via practiceStorage; this is just "where you were".
+  const [query, setQuery] = usePersistentState("tool:practice:query", "");
+  const [difficultyFilter, setDifficultyFilter] = usePersistentState("tool:practice:difficulty", null);
+  const [activeId, setActiveId] = usePersistentState("tool:practice:activeId", PROBLEMS[0]?.id ?? null);
   const [solved, setSolved] = useState(() => getSolvedSet());
   const [results, setResults] = useState(null);
   const [grading, setGrading] = useState(false);
@@ -34,10 +36,11 @@ export default function PracticeTool() {
 
   const editorRef = useRef(null);
   const editorViewRef = useRef(null);
-  const activeIdRef = useRef(activeId);
-  useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
-
-  const problem = PROBLEMS.find(p => p.id === activeId) ?? null;
+  // A restored id can be stale if the problem set changed — fall back to the first.
+  const problem = PROBLEMS.find(p => p.id === activeId) ?? PROBLEMS[0] ?? null;
+  const problemId = problem?.id ?? null;
+  const activeIdRef = useRef(problemId);
+  useEffect(() => { activeIdRef.current = problemId; }, [problemId]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

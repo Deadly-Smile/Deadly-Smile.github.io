@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Chess } from "chess.js";
+import { usePersistentState, readPersisted, writePersisted } from "../../Utils/usePersistentState";
 import {
   FaChessPawn, FaChessKnight, FaChessBishop,
   FaChessRook, FaChessQueen, FaChessKing,
@@ -11,7 +12,7 @@ import {
 
 const ROOM_HEARTBEAT_MS = 20000;
 function buildChessShareLink(roomId) {
-  return `${window.location.origin}/games?game=chess&room=${roomId}`;
+  return `${window.location.origin}/games/chess?room=${roomId}`;
 }
 
 // ─── Piece rendering ────────────────────────────────────────────────────────
@@ -139,20 +140,35 @@ const ModeSelect = ({ onSelect }) => (
 );
 
 // ─── Main game ───────────────────────────────────────────────────────────────
+// Captured pieces per capturing side, replayed from a restored game's history.
+function capturesFrom(chess, color) {
+  return chess.history({ verbose: true }).filter(m => m.captured && m.color === color).map(m => m.captured);
+}
+
 const ChessBoard = ({ mode, online, onBack }) => {
-  const [chess] = useState(() => new Chess());
+  // Local games (1p / 2p) resume where they were left; online games never do —
+  // the opponent's board is the other half of that state.
+  const saveKey = mode === "online" ? null : `game:chess:${mode}`;
+  const [restored] = useState(() => (saveKey ? readPersisted(saveKey, null) : null));
+  const [chess] = useState(() => {
+    const c = new Chess();
+    if (restored?.pgn) {
+      try { c.loadPgn(restored.pgn); } catch { c.reset(); }
+    }
+    return c;
+  });
   const [board, setBoard] = useState(() => chess.board());
   const [selected, setSelected] = useState(null);
   const [legalMoves, setLegalMoves] = useState([]);
   const [status, setStatus] = useState(mode === "1p" ? "Your turn (White)" : "White's turn");
   const [gameOver, setGameOver] = useState(false);
   const [thinking, setThinking] = useState(false);
-  const [lastMove, setLastMove] = useState(null);
-  const [difficulty, setDifficulty] = useState(2);  // 1 = easy, 2 = medium, 3 = hard, by default medium
-  const [capturedW, setCapturedW] = useState([]);   // captured by white player
-  const [capturedB, setCapturedB] = useState([]);   // captured by black player
+  const [lastMove, setLastMove] = useState(() => (chess.history().length ? restored?.lastMove ?? null : null));
+  const [difficulty, setDifficulty] = usePersistentState("game:chess:difficulty", 2);  // 1 = easy, 2 = medium, 3 = hard, by default medium
+  const [capturedW, setCapturedW] = useState(() => capturesFrom(chess, "w"));   // captured by white player
+  const [capturedB, setCapturedB] = useState(() => capturesFrom(chess, "b"));   // captured by black player
   const [promotionPending, setPromotionPending] = useState(null);
-  const [moveHistory, setMoveHistory] = useState([]);
+  const [moveHistory, setMoveHistory] = useState(() => chess.history());
   const [inCheck, setInCheck] = useState(false);
   const aiTimeoutRef = useRef(null);
 
@@ -206,6 +222,21 @@ const ChessBoard = ({ mode, online, onBack }) => {
       syncState();
     }, 100);
   }, [chess, difficulty, is1P, syncState]);
+
+  // moveHistory changes exactly when the position does, so save then.
+  useEffect(() => {
+    if (saveKey) writePersisted(saveKey, { pgn: chess.pgn(), lastMove });
+  }, [saveKey, chess, moveHistory, lastMove]);
+
+  // A restored game shows its real status, and the AI picks up if it was its turn.
+  useEffect(() => {
+    if (chess.history().length) {
+      syncState();
+      doAiMove();
+    }
+    return () => { if (aiTimeoutRef.current) clearTimeout(aiTimeoutRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const applyMove = (from, to, pieceType) => {
     const moveObj = pieceType
@@ -795,10 +826,17 @@ function OnlineChess({ onBack }) {
 
 // ─── Root component ──────────────────────────────────────────────────────────
 export default function ChessGame() {
-  const [mode, setMode] = useState(() => {
+  const [mode, setModeState] = useState(() => {
     const room = new URLSearchParams(window.location.search).get("room");
-    return room ? "online" : null; // shared link (?game=chess&room=XXXXXX) jumps straight to Online PvP
+    if (room) return "online"; // shared link (/games/chess?room=XXXXXX) jumps straight to Online PvP
+    // Otherwise reopen the local game the player left (online sessions don't resume).
+    const last = readPersisted("game:chess:mode", null);
+    return last === "1p" || last === "2p" ? last : null;
   });
+  const setMode = (m) => {
+    setModeState(m);
+    writePersisted("game:chess:mode", m === "online" ? null : m);
+  };
   const [difficulty, setDifficulty] = useState(2);
 
   if (!mode) return <ModeSelect onSelect={setMode} />;

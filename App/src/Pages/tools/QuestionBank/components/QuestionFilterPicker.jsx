@@ -1,68 +1,95 @@
-import { buildCategoryTree, collectSubtreeIds } from "../db";
+import { SOURCES, TYPES } from "../examBuilder";
 
-function flatten(tree) {
+// Shared by Study and Exam so "which questions" is chosen the same way in
+// both. Categories are multi-select and include their sub-categories.
+
+function flattenNonEmpty(tree, counts) {
   const out = [];
-  for (const node of tree) {
-    out.push(node);
-    out.push(...flatten(node.children));
-  }
+  (function walk(nodes) {
+    for (const node of nodes) {
+      if (!counts.get(node.id)) continue;
+      out.push(node);
+      walk(node.children);
+    }
+  })(tree);
   return out;
 }
 
-// Shared by StudyPanel and ExamPanel so "filter by category+subcategory+tag"
-// is one implementation, not two that can drift.
-export function filterQuestions(questions, categories, { categoryId, tagIds }) {
-  let pool = questions;
-  if (categoryId != null) {
-    const allowed = collectSubtreeIds(categories, categoryId);
-    pool = pool.filter(q => allowed.has(q.categoryId));
-  }
-  if (tagIds && tagIds.length > 0) {
-    pool = pool.filter(q => tagIds.every(tid => (q.tagIds ?? []).includes(tid)));
-  }
-  return pool;
+function toggle(list, value) {
+  return list.includes(value) ? list.filter(v => v !== value) : [...list, value];
 }
 
-export default function QuestionFilterPicker({ categories, tags, categoryId, onCategoryChange, tagIds, onTagIdsChange }) {
-  const flat = flatten(buildCategoryTree(categories));
+export default function QuestionFilterPicker({ bank, filter, onChange, poolSize }) {
+  const rows = flattenNonEmpty(bank.tree, bank.counts);
+  const selected = new Set(filter.categoryIds);
+  const set = patch => onChange({ ...filter, ...patch });
 
-  function toggleTag(id) {
-    onTagIdsChange(tagIds.includes(id) ? tagIds.filter(t => t !== id) : [...tagIds, id]);
+  // A row whose ancestor is checked is already covered by that ancestor's subtree.
+  const coveredByAncestor = new Set();
+  for (const node of rows) {
+    let parentId = bank.catById.get(node.id)?.parentId;
+    while (parentId != null) {
+      if (selected.has(parentId)) { coveredByAncestor.add(node.id); break; }
+      parentId = bank.catById.get(parentId)?.parentId;
+    }
   }
 
   return (
     <div className="tk-qb-filter-picker">
-      <div className="tk-pane">
-        <label className="tk-pane-label">CATEGORY (includes sub-categories)</label>
-        <select
-          className="tk-input-field"
-          value={categoryId ?? ""}
-          onChange={e => onCategoryChange(e.target.value ? Number(e.target.value) : null)}
-        >
-          <option value="">All categories</option>
-          {flat.map(cat => (
-            <option key={cat.id} value={cat.id}>{"  ".repeat(cat.depth)}{cat.name}</option>
+      <div className="tk-pane tk-qb-filter-categories">
+        <label className="tk-pane-label">
+          CATEGORIES {filter.categoryIds.length ? `(${filter.categoryIds.length} selected)` : "(all)"}
+          {filter.categoryIds.length > 0 && (
+            <button type="button" className="tk-qb-link" onClick={() => set({ categoryIds: [] })}>clear</button>
+          )}
+        </label>
+        <div className="tk-qb-checklist">
+          {rows.map(node => (
+            <label key={node.id} className="tk-qb-check" style={{ paddingLeft: node.depth * 14 }}>
+              <input
+                type="checkbox"
+                checked={selected.has(node.id) || coveredByAncestor.has(node.id)}
+                disabled={coveredByAncestor.has(node.id)}
+                onChange={() => set({ categoryIds: toggle(filter.categoryIds, node.id) })}
+              />
+              {node.name} <span className="tk-qb-tree-count">{bank.counts.get(node.id)}</span>
+            </label>
           ))}
-        </select>
+        </div>
       </div>
 
-      {tags.length > 0 && (
+      <div className="tk-qb-filter-side">
         <div className="tk-pane">
-          <label className="tk-pane-label">TAGS (must have all selected)</label>
-          <div className="tk-qb-tag-suggestions">
-            {tags.map(t => (
-              <button
-                type="button"
-                key={t.id}
-                className={tagIds.includes(t.id) ? "tk-qb-tag-filter--active" : ""}
-                onClick={() => toggleTag(t.id)}
-              >
-                {t.name}
-              </button>
-            ))}
-          </div>
+          <label className="tk-pane-label">QUESTIONS</label>
+          <select className="tk-input-field" value={filter.source} onChange={e => set({ source: e.target.value })}>
+            {SOURCES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
         </div>
-      )}
+        <div className="tk-pane">
+          <label className="tk-pane-label">TYPE</label>
+          <select className="tk-input-field" value={filter.type} onChange={e => set({ type: e.target.value })}>
+            {TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </select>
+        </div>
+        {bank.tags.length > 0 && (
+          <div className="tk-pane">
+            <label className="tk-pane-label">TAGS (must have all)</label>
+            <div className="tk-qb-tag-suggestions">
+              {bank.tags.map(t => (
+                <button
+                  type="button"
+                  key={t}
+                  className={filter.tags.includes(t) ? "tk-qb-tag-filter--active" : ""}
+                  onClick={() => set({ tags: toggle(filter.tags, t) })}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <p className="tk-qb-note">{poolSize} question{poolSize === 1 ? "" : "s"} match.</p>
+      </div>
     </div>
   );
 }

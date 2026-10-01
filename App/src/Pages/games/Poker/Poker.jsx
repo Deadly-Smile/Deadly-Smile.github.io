@@ -4,6 +4,7 @@ import { decideAction } from "./ai";
 import { rankLabel, describeHand } from "./handEvaluator";
 import { hostRoom, joinRoomAsClient, broadcastState, redactStateForSeat, nextOpenSeat } from "./multiplayer";
 import { buildQrUrl, registerOpenRoom, unregisterOpenRoom, fetchOpenRooms } from "../../tools/tk-shared.jsx";
+import { usePersistentState, readPersisted, writePersisted, removePersisted } from "../../../Utils/usePersistentState";
 
 const HUMAN_ID = 0;
 const RED_SUITS = new Set(["h", "d"]);
@@ -25,7 +26,7 @@ function generateSeatPositions(n) {
 }
 
 function buildShareLink(roomId) {
-  return `${window.location.origin}/games?game=poker&room=${roomId}`;
+  return `${window.location.origin}/games/poker?room=${roomId}`;
 }
 
 // Preserves which seats are guest-controlled (and their names) across a
@@ -142,15 +143,25 @@ function Seat({ player, isDealer, isActing, showFace, isWinner, position }) {
   );
 }
 
+const SOLO_SAVE_KEY = "game:poker:solo";
+
+// A solo table left mid-session, unless a shared room link takes priority.
+function readSoloSave() {
+  if (new URLSearchParams(window.location.search).get("room")) return null;
+  const s = readPersisted(SOLO_SAVE_KEY, null);
+  return s && Array.isArray(s.players) && s.players.length && Array.isArray(s.log) && s.handNumber > 0 ? s : null;
+}
+
 export default function Poker() {
-  const [state, setState] = useState(() => engine.createInitialState());
-  const [view, setView] = useState("menu"); // menu | lobby | table
+  const [soloSave] = useState(readSoloSave);
+  const [state, setState] = useState(() => soloSave ?? engine.createInitialState());
+  const [view, setView] = useState(() => (soloSave ? "table" : "menu")); // menu | lobby | table
   const [role, setRole] = useState("solo"); // solo | host | client
   const [mySeatId, setMySeatId] = useState(HUMAN_ID);
 
   const [multiplayerMode, setMultiplayerMode] = useState(null); // null | "host" | "join"
-  const [seatCount, setSeatCount] = useState(engine.MAX_SEATS);
-  const [nameInput, setNameInput] = useState("");
+  const [seatCount, setSeatCount] = usePersistentState("game:poker:seatCount", engine.MAX_SEATS);
+  const [nameInput, setNameInput] = usePersistentState("game:poker:name", "");
   const [joinInput, setJoinInput] = useState("");
   const [discoverable, setDiscoverable] = useState(true);
   const [roomId, setRoomId] = useState("");
@@ -256,6 +267,15 @@ export default function Poker() {
     if (role === "host") broadcastState(connectionsRef.current, state);
   }, [role, state]);
 
+  // Only solo tables are saved — the host's state is shared with guests and a
+  // client's is someone else's. Every multiplayer path starts from the menu,
+  // which drops the solo save first.
+  useEffect(() => {
+    if (role !== "solo") return;
+    if (view === "table") writePersisted(SOLO_SAVE_KEY, state);
+    else removePersisted(SOLO_SAVE_KEY);
+  }, [role, view, state]);
+
   // Host/client view follows state.handNumber — 0 means "lobby", >0 means "table".
   // Solo manages its own view transitions directly (no lobby stage at all).
   useEffect(() => {
@@ -342,7 +362,7 @@ export default function Poker() {
   }, []);
   useEffect(() => { if (view === "menu") refreshOpenRooms(); }, [view, refreshOpenRooms]);
 
-  // Auto-join when opened via a shared link (?game=poker&room=XXXXXX) — code
+  // Auto-join when opened via a shared link (/games/poker?room=XXXXXX) — code
   // is pre-filled, but a name is still required so the user confirms with Join.
   useEffect(() => {
     if (autoJoinedRef.current) return;

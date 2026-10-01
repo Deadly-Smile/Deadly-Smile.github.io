@@ -1,12 +1,13 @@
 import { useState, useRef } from 'react';
 import { CopyBtn, ActionBtn, StatusBar } from './tk-shared';
+import { usePersistentState } from '../../Utils/usePersistentState';
 
 export default function CSVTSVConverter() {
-  const [input, setInput] = useState('name,age,city\nJohn,30,NYC\nJane,25,LA');
-  const [output, setOutput] = useState('');
+  const [input, setInput] = usePersistentState('tool:csv:input', 'name,age,city\nJohn,30,NYC\nJane,25,LA');
+  const [output, setOutput] = usePersistentState('tool:csv:output', '');
   const [status, setStatus] = useState({ msg: "Ready.", type: "" });
-  const [mode, setMode] = useState('csvToJson'); // csvToJson, jsonToCsv, csvToTsv, tsvToCsv
-  const outputRef = useRef("");
+  const [mode, setMode] = usePersistentState('tool:csv:mode', 'csvToJson'); // csvToJson, jsonToCsv, csvToTsv, tsvToCsv
+  const outputRef = useRef(output);
 
   const parseCSV = (csv, delimiter = ',') => {
     const rows = [];
