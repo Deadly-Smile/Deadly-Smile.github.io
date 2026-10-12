@@ -23,7 +23,7 @@ const GAMES = [
   { id: "breakout", label: "🎮 BREAKOUT", component: Breakout, desc: "Break bricks and level up!" },
   { id: "flappy", label: "🐦 FLAPPY BIRD", component: FlappyBird, desc: "Avoid the pipes" },
   { id: "Solitaire", label: "🃏 SOLITAIRE", component: Solitaire, desc: "Play the classic card game!" },
-  { id: "poker", label: "♠️ TEXAS HOLD'EM", component: Poker, desc: "No-Limit Hold'em · 2-6 players, solo or online" },
+  { id: "poker", label: "♠️ POKER", component: Poker, desc: "Texas Hold'em · beginner odds helper · 2-6 players, solo or online" },
   { id: "battleship", label: "🚢 BATTLESHIP", component: Battleship, desc: "Online PvP · dynamic board & fleet size" },
 ];
 
