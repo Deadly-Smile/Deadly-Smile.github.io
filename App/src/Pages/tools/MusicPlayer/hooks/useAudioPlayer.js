@@ -1,7 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getSettings, saveSettings, getLastState, saveLastState } from "../storage";
+import { resumeAudioGraph } from "./useVisualizer";
 
 const LAST_STATE_SAVE_INTERVAL_SECONDS = 4;
+
+// Chromium drops a media element from the page's media session once it has
+// *ended* (MPRIS/OS controls then show "Stopped" and media keys stop reaching
+// the page), whereas a *paused* element stays controllable. After the queue
+// runs out, a muted play → pause turns the rewound track back into a paused
+// player. Verified against Chromium's MPRIS interface on Linux.
+function rearmMediaSession(audio, rearmingRef) {
+  rearmingRef.current = true;
+  const wasMuted = audio.muted;
+  audio.muted = true;
+  audio.play()
+    .then(() => audio.pause())
+    .catch(() => {})
+    .finally(() => {
+      audio.muted = wasMuted;
+      rearmingRef.current = false;
+    });
+}
 
 export function useAudioPlayer(track, { repeatMode, onNaturalEnd } = {}) {
   const audioRef = useRef(null);
@@ -16,6 +35,8 @@ export function useAudioPlayer(track, { repeatMode, onNaturalEnd } = {}) {
   const lastSaveRef = useRef(0);
   const suppressPauseRef = useRef(false);
   const autoAdvanceRef = useRef(false);
+  const rearmingRef = useRef(false);
+  const rearmPendingRef = useRef(false);
 
   const trackRef = useRef(track);
   trackRef.current = track;
@@ -72,6 +93,7 @@ export function useAudioPlayer(track, { repeatMode, onNaturalEnd } = {}) {
     };
 
     const handlePlay = () => {
+      if (rearmingRef.current) return; // muted re-arm blip, not a real play
       suppressPauseRef.current = false;
       setIsPlaying(true);
     };
@@ -117,6 +139,8 @@ export function useAudioPlayer(track, { repeatMode, onNaturalEnd } = {}) {
 
     const shouldResume = isPlayingRef.current || autoAdvanceRef.current;
     autoAdvanceRef.current = false;
+    const rearmAfterLoad = !shouldResume && rearmPendingRef.current;
+    rearmPendingRef.current = false;
     if (shouldResume) suppressPauseRef.current = true;
     // Assigning .src already triggers the browser's load algorithm; an
     // explicit .load() right before .play() can abort that pending play()
@@ -129,6 +153,11 @@ export function useAudioPlayer(track, { repeatMode, onNaturalEnd } = {}) {
     // a real "error" event on the element and force-pauses playback.
     if (previousUrl) URL.revokeObjectURL(previousUrl);
 
+    if (rearmAfterLoad) {
+      const rearmLoaded = () => { if (objectUrlRef.current === url) rearmMediaSession(audio, rearmingRef); };
+      audio.addEventListener("loadeddata", rearmLoaded, { once: true });
+      return () => audio.removeEventListener("loadeddata", rearmLoaded);
+    }
     if (!shouldResume) return;
 
     // The new resource has no data yet immediately after swapping src —
@@ -147,7 +176,10 @@ export function useAudioPlayer(track, { repeatMode, onNaturalEnd } = {}) {
   }, [track?.id]);
 
   const play = useCallback(() => {
-    audioRef.current?.play().catch(() => {});
+    const audio = audioRef.current;
+    if (!audio?.src) return; // nothing loaded yet
+    resumeAudioGraph();
+    audio.play().catch(() => {});
   }, []);
 
   const pause = useCallback(() => {
@@ -160,6 +192,24 @@ export function useAudioPlayer(track, { repeatMode, onNaturalEnd } = {}) {
     if (audio.paused) play();
     else pause();
   }, [play, pause]);
+
+  // End of the queue: whatever track is current next stays loaded but
+  // paused at 0:00. Must run in the same handler that changes the track, so
+  // the track-switch effect sees "not playing" and doesn't auto-resume.
+  // `trackChanges`: the queue moved to a different track (re-arm after it loads).
+  const stopAtEnd = useCallback(({ trackChanges = false } = {}) => {
+    autoAdvanceRef.current = false;
+    isPlayingRef.current = false;
+    const audio = audioRef.current;
+    if (!audio) return;
+    const ended = audio.ended;
+    audio.pause();
+    audio.currentTime = 0;
+    setCurrentTime(0);
+    if (!ended) return;
+    if (trackChanges) rearmPendingRef.current = true;
+    else rearmMediaSession(audio, rearmingRef);
+  }, []);
 
   const seek = useCallback((time) => {
     const audio = audioRef.current;
@@ -176,5 +226,5 @@ export function useAudioPlayer(track, { repeatMode, onNaturalEnd } = {}) {
     saveSettings({ ...getSettings(), volume: v });
   }, []);
 
-  return { audioRef, isPlaying, currentTime, duration, volume, play, pause, togglePlay, seek, setVolume };
+  return { audioRef, isPlaying, currentTime, duration, volume, play, pause, togglePlay, stopAtEnd, seek, setVolume };
 }

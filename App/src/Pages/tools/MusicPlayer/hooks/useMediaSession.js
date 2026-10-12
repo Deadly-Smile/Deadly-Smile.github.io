@@ -23,6 +23,9 @@ export function useMediaSession({ track, coverBlob, isPlaying, currentTime, dura
     const handlers = {
       play: () => latest.current.onPlay(),
       pause: () => latest.current.onPause(),
+      // Some OSes send "stop" (e.g. a headset long-press); pausing keeps the
+      // session alive so the next play key still reaches this page.
+      stop: () => latest.current.onPause(),
       nexttrack: () => latest.current.onNext(),
       previoustrack: () => latest.current.onPrevious(),
       seekto: (e) => { if (Number.isFinite(e.seekTime)) seekTo(e.seekTime); },
@@ -41,7 +44,10 @@ export function useMediaSession({ track, coverBlob, isPlaying, currentTime, dura
     };
   }, [supported]);
 
-  // Track metadata + album cover as notification artwork.
+  // Track metadata + album cover as notification artwork. Re-applied on every
+  // play/pause too: other media on the page (P2P Chat's call <video>s, also
+  // kept alive) can take over the session, and re-asserting the metadata
+  // hands it back to the music.
   useEffect(() => {
     if (!supported) return;
     if (!track) {
@@ -56,7 +62,7 @@ export function useMediaSession({ track, coverBlob, isPlaying, currentTime, dura
       artwork: artUrl ? [{ src: artUrl, type: coverBlob.type || "image/jpeg" }] : [],
     });
     return () => { if (artUrl) URL.revokeObjectURL(artUrl); };
-  }, [supported, track, coverBlob]);
+  }, [supported, track, coverBlob, isPlaying]);
 
   useEffect(() => {
     if (!supported) return;

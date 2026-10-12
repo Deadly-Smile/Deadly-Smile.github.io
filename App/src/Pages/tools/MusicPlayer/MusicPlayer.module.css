@@ -343,7 +343,8 @@
 }
 
 /* Background mini-player. Lives in the KeepAlive dock, outside .tk-root, so
-   it carries its own copy of the tk palette. The dock positions it. */
+   it carries its own copy of the tk palette. The dock positions it until it
+   is dragged (MiniPlayer.jsx then sets position: fixed inline). */
 .miniPlayer {
   --tk-surface: #111111;
   --tk-border-bright: #3a3a3a;
@@ -363,6 +364,28 @@
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
   color: var(--tk-text);
   font-family: var(--tk-mono);
+}
+
+.miniPlayerDragging {
+  opacity: 0.85;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.7);
+}
+
+.miniGrip {
+  flex-shrink: 0;
+  padding: 0 0.2rem;
+  color: #777;
+  cursor: grab;
+  user-select: none;
+  touch-action: none; /* let pointer events drive the drag on touch screens */
+}
+
+.miniGrip:hover {
+  color: var(--tk-accent);
+}
+
+.miniPlayerDragging .miniGrip {
+  cursor: grabbing;
 }
 
 .miniTitle {
@@ -406,4 +429,31 @@
 .miniBtn:hover {
   color: var(--tk-accent);
   border-color: var(--tk-accent);
+}
+
+.shortcutHelp {
+  margin-top: 0.5rem;
+  font-family: var(--tk-mono);
+  font-size: 0.75rem;
+  color: var(--tk-text-dim, #888);
+}
+
+.shortcutHelp summary {
+  cursor: pointer;
+  width: fit-content;
+}
+
+.shortcutHelp dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.2rem 0.75rem;
+  margin: 0.4rem 0 0;
+}
+
+.shortcutHelp dt {
+  color: var(--tk-accent, #00ff88);
+}
+
+.shortcutHelp dd {
+  margin: 0;
 }

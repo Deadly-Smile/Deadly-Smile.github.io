@@ -1,6 +1,7 @@
 import styles from "../MusicPlayer.module.css";
 import VolumeSlider from "./VolumeSlider";
 import { formatTime } from "../utils";
+import { SHORTCUT_HELP } from "../shortcuts";
 
 const REPEAT_ICONS = { off: "🔁", all: "🔁", one: "🔂" };
 const REPEAT_LABELS = { off: "Repeat Off", all: "Repeat All", one: "Repeat One" };
@@ -57,13 +58,13 @@ export default function PlayerControls({
         >
           🔀
         </button>
-        <button type="button" className={styles.controlBtn} onClick={onPrevious} title="Previous" disabled={!currentTrack}>
+        <button type="button" className={styles.controlBtn} onClick={onPrevious} title="Previous (P)" disabled={!currentTrack}>
           ⏮
         </button>
-        <button type="button" className={styles.controlBtn} onClick={onTogglePlay} title={isPlaying ? "Pause" : "Play"} disabled={!currentTrack}>
+        <button type="button" className={styles.controlBtn} onClick={onTogglePlay} title={`${isPlaying ? "Pause" : "Play"} (Space)`} disabled={!currentTrack}>
           {isPlaying ? "⏸" : "▶"}
         </button>
-        <button type="button" className={styles.controlBtn} onClick={onNext} title="Next" disabled={!currentTrack}>
+        <button type="button" className={styles.controlBtn} onClick={onNext} title="Next (N)" disabled={!currentTrack}>
           ⏭
         </button>
         <button
@@ -76,6 +77,18 @@ export default function PlayerControls({
         </button>
         <VolumeSlider volume={volume} onChange={onVolumeChange} />
       </div>
+
+      <details className={styles.shortcutHelp}>
+        <summary>⌨ Keyboard shortcuts</summary>
+        <dl>
+          {SHORTCUT_HELP.map(([keys, what]) => (
+            <div key={keys} style={{ display: "contents" }}>
+              <dt>{keys}</dt>
+              <dd>{what}</dd>
+            </div>
+          ))}
+        </dl>
+      </details>
     </div>
   );
 }

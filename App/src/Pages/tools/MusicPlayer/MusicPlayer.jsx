@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useReducer, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { navigate, useSearchParams } from "../../../Utils/router";
 import { useKeepAliveActive, useKeepAliveRelease } from "../../../Utils/KeepAlive";
 import { usePersistentState } from "../../../Utils/usePersistentState";
@@ -19,6 +19,8 @@ import { getSettings, saveSettings, getLastState } from "./storage";
 import { useAudioPlayer } from "./hooks/useAudioPlayer";
 import { useShuffleQueue } from "./hooks/useShuffleQueue";
 import { useMediaSession } from "./hooks/useMediaSession";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { SEEK_STEP_SECONDS, VOLUME_STEP } from "./shortcuts";
 import { closeAudioGraph } from "./hooks/useVisualizer";
 import UploadButton from "./components/UploadButton";
 import TrackList from "./components/TrackList";
@@ -31,6 +33,10 @@ import MiniPlayer from "./components/MiniPlayer";
 import styles from "./MusicPlayer.module.css";
 
 const REPEAT_CYCLE = ["off", "all", "one"];
+// A media key can reach us twice — as a Media Session action and as a
+// keydown — so the same kind of media action within this window is dropped.
+const MEDIA_DEDUPE_MS = 500;
+const MEDIA_GROUP = { toggle: "playpause", play: "playpause", pause: "playpause", next: "next", previous: "previous" };
 const TABS = [
   { id: "library", label: "Library" },
   { id: "playlists", label: "Playlists" },
@@ -60,11 +66,59 @@ export default function MusicPlayer() {
   const shuffleQueue = useShuffleQueue();
   const currentTrack = library.tracks.find((t) => t.id === shuffleQueue.currentId) ?? null;
 
-  const handleNaturalEnd = useCallback(() => {
-    shuffleQueue.next({ repeatAll: repeatMode === "all" });
-  }, [shuffleQueue, repeatMode]);
+  // useAudioPlayer keeps onNaturalEnd in a ref, so it can reach goNext
+  // (defined after the player exists) through this one.
+  const goNextRef = useRef(null);
+  const handleNaturalEnd = useCallback(() => goNextRef.current?.(), []);
 
   const player = useAudioPlayer(currentTrack, { repeatMode, onNaturalEnd: handleNaturalEnd });
+
+  const goNext = () => {
+    const result = shuffleQueue.next({ repeatAll: repeatMode === "all" });
+    if (!result) return; // swallowed by the double-press guard
+    if (result.ended) {
+      player.stopAtEnd({ trackChanges: result.id !== currentTrack?.id });
+    } else if (result.id === currentTrack?.id) {
+      // Repeat-all over a one-track queue: same id, so no track switch fires.
+      player.seek(0);
+      player.play();
+    }
+  };
+  goNextRef.current = goNext;
+
+  const lastMediaRef = useRef({ group: null, at: 0 });
+  const unmutedVolumeRef = useRef(null);
+  const performAction = (action, { mediaKey = false } = {}) => {
+    if (mediaKey) {
+      const group = MEDIA_GROUP[action];
+      const now = performance.now();
+      const last = lastMediaRef.current;
+      if (group && last.group === group && now - last.at < MEDIA_DEDUPE_MS) return;
+      lastMediaRef.current = { group, at: now };
+    }
+    const clampVolume = (v) => Math.round(Math.min(1, Math.max(0, v)) * 100) / 100;
+    switch (action) {
+      case "toggle": player.togglePlay(); break;
+      case "play": player.play(); break;
+      case "pause": player.pause(); break;
+      case "next": goNext(); break;
+      case "previous": shuffleQueue.previous(); break;
+      case "seekBack": player.seek(Math.max(0, player.currentTime - SEEK_STEP_SECONDS)); break;
+      case "seekForward":
+        if (player.duration) player.seek(Math.min(player.duration, player.currentTime + SEEK_STEP_SECONDS));
+        break;
+      case "volumeUp": player.setVolume(clampVolume(player.volume + VOLUME_STEP)); break;
+      case "volumeDown": player.setVolume(clampVolume(player.volume - VOLUME_STEP)); break;
+      case "mute":
+        if (player.volume > 0) {
+          unmutedVolumeRef.current = player.volume;
+          player.setVolume(0);
+        } else {
+          player.setVolume(unmutedVolumeRef.current || 0.5);
+        }
+        break;
+    }
+  };
 
   // Lock screen / notification controls (and keeps Android from freezing the tab).
   useMediaSession({
@@ -73,12 +127,15 @@ export default function MusicPlayer() {
     isPlaying: player.isPlaying,
     currentTime: player.currentTime,
     duration: player.duration,
-    onPlay: player.play,
-    onPause: player.pause,
-    onNext: () => shuffleQueue.next({ repeatAll: repeatMode === "all" }),
-    onPrevious: shuffleQueue.previous,
+    onPlay: () => performAction("play", { mediaKey: true }),
+    onPause: () => performAction("pause", { mediaKey: true }),
+    onNext: () => performAction("next", { mediaKey: true }),
+    onPrevious: () => performAction("previous", { mediaKey: true }),
     onSeek: player.seek,
   });
+
+  // Space/K, J/L, N/P, M, ↑/↓ on screen; media keys and Alt+Shift+P/N/B always.
+  useKeyboardShortcuts(onScreen, performAction);
 
   const reloadLibrary = useCallback(() => {
     return Promise.all([getAllTracks(), getAllAlbums(), getAllPlaylists()])
@@ -327,7 +384,7 @@ export default function MusicPlayer() {
         duration={player.duration}
         onTogglePlay={player.togglePlay}
         onSeek={player.seek}
-        onNext={() => shuffleQueue.next({ repeatAll: repeatMode === "all" })}
+        onNext={goNext}
         onPrevious={shuffleQueue.previous}
         shuffle={shuffleQueue.shuffle}
         onToggleShuffle={shuffleQueue.toggleShuffle}
@@ -342,7 +399,8 @@ export default function MusicPlayer() {
           track={currentTrack}
           isPlaying={player.isPlaying}
           onTogglePlay={player.togglePlay}
-          onNext={() => shuffleQueue.next({ repeatAll: repeatMode === "all" })}
+          onNext={goNext}
+          onPrevious={shuffleQueue.previous}
           onOpen={() => navigate("/toolz/music_player")}
           // Unmounting the instance pauses, saves position and closes the audio graph.
           onClose={releaseInstance}
