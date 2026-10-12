@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import * as engine from "./engine";
 import { decideAction } from "./ai";
 import { rankLabel, describeHand } from "./handEvaluator";
+import { OddsBadge, OddsModal } from "./OddsHelper";
+import { useOdds } from "./useOdds";
 import { hostRoom, joinRoomAsClient, broadcastState, redactStateForSeat, nextOpenSeat } from "./multiplayer";
 import { buildQrUrl, registerOpenRoom, unregisterOpenRoom, fetchOpenRooms } from "../../tools/tk-shared.jsx";
 import { usePersistentState, readPersisted, writePersisted, removePersisted } from "../../../Utils/usePersistentState";
@@ -379,6 +381,16 @@ export default function Poker() {
 
   const [raiseAmount, setRaiseAmount] = useState(engine.BIG_BLIND);
 
+  // Beginner odds helper (all modes): only the viewer's own hole cards and
+  // the board feed it, so it reveals nothing a client couldn't already see.
+  const [showOddsBadge, setShowOddsBadge] = usePersistentState("game:poker:showOdds", true);
+  const [oddsOpen, setOddsOpen] = useState(false);
+  const closeOdds = useCallback(() => setOddsOpen(false), []);
+  const handLive = state.street !== "waiting" && state.street !== "handOver";
+  const myHole = handLive && me?.inHand && !me.folded ? me.holeCards : [];
+  const liveOpponents = state.players.filter(p => p.id !== mySeatId && p.inHand && !p.folded).length;
+  const odds = useOdds(myHole, state.board, liveOpponents);
+
   const minRaiseTarget = state.currentBet === 0
     ? Math.min(me?.stack ?? 0, engine.BIG_BLIND)
     : Math.min((me?.stack ?? 0) + (me?.streetBet ?? 0), state.currentBet + state.minRaise);
@@ -470,10 +482,17 @@ export default function Poker() {
             (top-4 left-4) on narrow screens; sm+ has room to spare already. */}
         <div className="shrink-0 flex items-center justify-between gap-2 px-3 pt-14 sm:pt-3 pb-2">
           <div className="min-w-0 flex items-baseline gap-1.5 text-xs sm:text-sm text-slate-300">
-            <span className="font-bold text-white whitespace-nowrap">🃏 Hold'em</span>
+            <span className="font-bold text-white whitespace-nowrap">🃏 Poker</span>
             <span className="text-slate-600">·</span>
             <span className="truncate">Hand #{state.handNumber} · Pot ${state.pot}</span>
           </div>
+          <button
+            onClick={() => setOddsOpen(true)}
+            className="shrink-0 ml-auto px-3 py-1 rounded-full bg-emerald-800 hover:bg-emerald-700 text-xs transition-colors"
+            title="Your chances, pot odds and hand rankings"
+          >
+            📊 Odds
+          </button>
           {role !== "solo" && (
             <button onClick={leaveGame} className="shrink-0 px-3 py-1 rounded-full bg-slate-700 hover:bg-slate-600 text-xs transition-colors">
               Leave
@@ -525,6 +544,11 @@ export default function Poker() {
             states), tighter padding on mobile so it always fits under the
             felt without inflating past the space flex-1 left it. */}
         <div className="shrink-0 px-3 pb-3 pt-1">
+          {showOddsBadge && myHole.length === 2 && liveOpponents > 0 && (
+            <div className="max-w-md mx-auto">
+              <OddsBadge hole={myHole} board={state.board} odds={odds} opponents={liveOpponents} onOpen={() => setOddsOpen(true)} />
+            </div>
+          )}
           {isMyTurn && (
             <div className="bg-slate-800 rounded-2xl border border-slate-700 p-2 sm:p-4 shadow-lg">
               <div className="flex flex-wrap gap-1.5 sm:gap-2 justify-center mb-2 sm:mb-3">
@@ -588,6 +612,20 @@ export default function Poker() {
             </div>
           )}
         </div>
+
+        {oddsOpen && (
+          <OddsModal
+            hole={myHole}
+            board={state.board}
+            odds={odds}
+            opponents={liveOpponents}
+            toCall={Math.max(0, Math.min(toCall, me?.stack ?? 0))}
+            pot={state.pot}
+            showBadge={showOddsBadge}
+            onToggleBadge={setShowOddsBadge}
+            onClose={closeOdds}
+          />
+        )}
       </div>
     );
   }
@@ -599,9 +637,9 @@ export default function Poker() {
     <div className="min-h-full bg-gradient-to-b from-slate-950 to-slate-900 px-4 pt-16 pb-4 md:p-8 text-white">
       <style>{globalStyles}</style>
       <div className="max-w-5xl mx-auto">
-        <h1 className="text-3xl font-bold text-center mb-1 tracking-tight">🃏 Texas Hold'em</h1>
+        <h1 className="text-3xl font-bold text-center mb-1 tracking-tight">🃏 Poker</h1>
         <p className="text-center text-slate-400 text-sm mb-6">
-          No-Limit · blinds ${engine.SMALL_BLIND}/${engine.BIG_BLIND}
+          Texas Hold&apos;em · No-Limit · blinds ${engine.SMALL_BLIND}/${engine.BIG_BLIND}
         </p>
 
         {view === "menu" && (

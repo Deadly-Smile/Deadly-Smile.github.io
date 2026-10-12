@@ -62,6 +62,15 @@ function getOrCreateGraph(audioEl) {
   return graph;
 }
 
+// Called synchronously from play(): resuming inside the play request (a click
+// or a media-key / Media Session action) satisfies autoplay policy, whereas
+// the effect below runs a render later and can be refused. In "element" mode
+// a refused resume meant a media-key play produced silence — the context had
+// been suspended on pause and audio is routed through it.
+export function resumeAudioGraph() {
+  if (graph?.ctx.state === "suspended") graph.ctx.resume().catch(() => {});
+}
+
 export function closeAudioGraph() {
   if (graph) {
     graph.ctx.close().catch(() => {});

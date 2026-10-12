@@ -15,12 +15,13 @@ export function useShuffleQueue() {
   // Guards next()/previous() against rapid double-invocation so overlapping
   // calls can't race the shared <audio> element / AudioContext state.
   const guard = (fn) => {
-    if (isTransitioningRef.current) return;
+    if (isTransitioningRef.current) return undefined;
     isTransitioningRef.current = true;
-    fn();
+    const result = fn();
     setTimeout(() => {
       isTransitioningRef.current = false;
     }, TRANSITION_GUARD_MS);
+    return result;
   };
 
   const setQueue = useCallback(
@@ -33,35 +34,42 @@ export function useShuffleQueue() {
     [shuffle]
   );
 
+  // Returns { ended, id } (id = the new current track). ended is true when the queue ran out without repeat-all: the
+  // queue rewinds to its first track instead of clearing the current track
+  // (a null track tears down the Media Session, leaving the OS media keys,
+  // lock screen and mini-player with nothing to control). The caller is
+  // expected to leave that track paused.
   const next = useCallback(
     ({ repeatAll = false } = {}) => {
-      guard(() => {
+      return guard(() => {
         if (currentId != null) setHistory((h) => [...h, currentId]);
 
         if (shuffle) {
           let upcoming = shuffledUpcoming;
           if (upcoming.length === 0) {
             if (!repeatAll) {
-              setCurrentId(null);
-              return;
+              const [head = currentId, ...rest] = fisherYatesShuffle(queueIds);
+              setShuffledUpcoming(rest.filter((id) => id !== head));
+              setCurrentId(head);
+              return { ended: true, id: head };
             }
             upcoming = fisherYatesShuffle(queueIds.filter((id) => id !== currentId));
           }
           const [head, ...rest] = upcoming;
           setShuffledUpcoming(rest);
           setCurrentId(head ?? null);
-          return;
+          return { ended: false, id: head ?? null };
         }
 
         const idx = queueIds.indexOf(currentId);
         const nextIdx = idx + 1;
         if (nextIdx < queueIds.length) {
           setCurrentId(queueIds[nextIdx]);
-        } else if (repeatAll && queueIds.length > 0) {
-          setCurrentId(queueIds[0]);
-        } else {
-          setCurrentId(null);
+          return { ended: false, id: queueIds[nextIdx] };
         }
+        if (queueIds.length === 0) return { ended: true, id: currentId };
+        setCurrentId(queueIds[0]);
+        return { ended: !repeatAll, id: queueIds[0] };
       });
     },
     [currentId, shuffle, shuffledUpcoming, queueIds]
