@@ -7,17 +7,22 @@ import { useOdds } from "./useOdds";
 import { hostRoom, joinRoomAsClient, broadcastState, redactStateForSeat, nextOpenSeat } from "./multiplayer";
 import { buildQrUrl, registerOpenRoom, unregisterOpenRoom, fetchOpenRooms } from "../../tools/tk-shared.jsx";
 import { usePersistentState, readPersisted, writePersisted, removePersisted } from "../../../Utils/usePersistentState";
+import { AVATARS, randomIdentity } from "./identity";
+import { diffEvents, isSeatsTurn } from "./soundEvents";
+import { playEvents } from "./sounds";
+import { Avatar, IdentityPicker, TableSettings, SeatList } from "./TableSetup";
 
 const HUMAN_ID = 0;
 const RED_SUITS = new Set(["h", "d"]);
 const SUIT_SYMBOL = { s: "♠", h: "♥", d: "♦", c: "♣" };
 const ROOM_HEARTBEAT_MS = 20000;
 
-// Lays out `n` seats clockwise around an oval, starting at the bottom (seat 0,
-// "You"). Computed rather than a fixed table — the seat count is adjustable
-// (engine.MIN_SEATS..MAX_SEATS) so there's no fixed layout to hardcode.
+// Lays out `n` seats clockwise around an oval, starting at the bottom.
+// Computed rather than a fixed table — the seat count is adjustable
+// (engine.MIN_SEATS..MAX_SEATS) so there's no fixed layout to hardcode. The
+// table view rotates the seats so the viewer's own is always slot 0.
 function generateSeatPositions(n) {
-  const RX = 42, RY = 40, CX = 50, CY = 48;
+  const RX = 42, RY = 38, CX = 50, CY = 50;
   return Array.from({ length: n }, (_, i) => {
     const theta = (i * 2 * Math.PI) / n;
     return {
@@ -34,34 +39,15 @@ function buildShareLink(roomId) {
 // Preserves which seats are guest-controlled (and their names) across a
 // rematch — a host restarting shouldn't have to re-share the room.
 function resetForRematch(prevState) {
-  const fresh = engine.createInitialState(prevState.players.length);
+  const host = prevState.players[HUMAN_ID];
+  const fresh = engine.createInitialState(prevState.players.length, prevState.config, host);
   fresh.players = fresh.players.map((p, i) => {
     const prevPlayer = prevState.players[i];
-    return i !== HUMAN_ID && prevPlayer?.isHuman ? { ...p, isHuman: true, name: prevPlayer.name } : p;
+    return i !== HUMAN_ID && prevPlayer?.isHuman
+      ? { ...p, isHuman: true, name: prevPlayer.name, avatar: prevPlayer.avatar }
+      : p;
   });
-  fresh.players[HUMAN_ID].name = prevState.players[HUMAN_ID].name;
   return fresh;
-}
-
-function PlayerCountStepper({ value, onChange, label = "Players" }) {
-  return (
-    <div className="flex items-center justify-between gap-3 mb-5 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5">
-      <span className="text-sm text-slate-300">{label}</span>
-      <div className="flex items-center gap-3">
-        <button
-          onClick={() => onChange(Math.max(engine.MIN_SEATS, value - 1))}
-          disabled={value <= engine.MIN_SEATS}
-          className="w-7 h-7 rounded-full bg-slate-700 hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed font-bold transition-colors"
-        >−</button>
-        <span className="w-4 text-center font-mono font-semibold">{value}</span>
-        <button
-          onClick={() => onChange(Math.min(engine.MAX_SEATS, value + 1))}
-          disabled={value >= engine.MAX_SEATS}
-          className="w-7 h-7 rounded-full bg-slate-700 hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed font-bold transition-colors"
-        >+</button>
-      </div>
-    </div>
-  );
 }
 
 function CopyButton({ text, label = "Copy" }) {
@@ -108,11 +94,11 @@ function StackBadge({ amount }) {
   );
 }
 
-function Seat({ player, isDealer, isActing, showFace, isWinner, position }) {
+function Seat({ player, isDealer, isActing, showFace, isWinner, isMe, position }) {
   const busted = player.stack === 0 && !player.inHand;
   return (
     <div
-      className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-1 w-16 sm:w-28"
+      className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-1 w-[76px] sm:w-28"
       style={position}
     >
       {isDealer && (
@@ -125,7 +111,10 @@ function Seat({ player, isDealer, isActing, showFace, isWinner, position }) {
           player.folded || busted ? "opacity-35" : "",
         ].join(" ")}
       >
-        <div className="text-[10px] sm:text-xs font-semibold text-white truncate w-full text-center">{player.name}</div>
+        <div className="flex items-center gap-1 w-full min-w-0 justify-center">
+          <Avatar avatar={player.avatar} size="sm" />
+          <span className={`text-[10px] sm:text-xs font-semibold truncate ${isMe ? "text-indigo-300" : "text-white"}`}>{player.name}</span>
+        </div>
         <div className="flex gap-0.5 sm:gap-1">
           {player.holeCards.length > 0
             ? player.holeCards.map((c, i) => <Card key={i} card={c} hidden={!showFace} size="seat" />)
@@ -163,13 +152,16 @@ export default function Poker() {
 
   const [multiplayerMode, setMultiplayerMode] = useState(null); // null | "host" | "join"
   const [seatCount, setSeatCount] = usePersistentState("game:poker:seatCount", engine.MAX_SEATS);
-  const [nameInput, setNameInput] = usePersistentState("game:poker:name", "");
+  const [config, setConfig] = usePersistentState("game:poker:config", engine.DEFAULT_CONFIG);
+  const [identity, setIdentity] = usePersistentState("game:poker:identity", () => randomIdentity());
+  const [soundOn, setSoundOn] = usePersistentState("game:poker:sound", true);
   const [joinInput, setJoinInput] = useState("");
   const [discoverable, setDiscoverable] = useState(true);
   const [roomId, setRoomId] = useState("");
   const [statusMsg, setStatusMsg] = useState("");
   const [openRooms, setOpenRooms] = useState([]);
   const [roomsLoading, setRoomsLoading] = useState(false);
+  const [confirming, setConfirming] = useState(null); // null | "quit" | "restart" — armed header button
 
   const logEndRef = useRef(null);
   const stateRef = useRef(state);
@@ -209,22 +201,24 @@ export default function Poker() {
   useEffect(() => teardownNetwork, [teardownNetwork]); // stable ref — runs teardown only on real unmount
 
   // ─── Host-side handlers (registered once per hostRoom() call) ─────────────
-  const handleGuestJoin = useCallback((conn, name) => {
+  const handleGuestJoin = useCallback((conn, { name, avatar }) => {
     const seat = nextOpenSeat(connectionsRef.current, stateRef.current.players.length);
     if (seat === -1) { conn.send({ type: "full" }); conn.close(); return; }
     connectionsRef.current.set(seat, conn);
     connToSeatRef.current.set(conn, seat);
     const next = structuredClone(stateRef.current);
     next.players[seat].isHuman = true;
-    if (name) next.players[seat].name = name.slice(0, 16);
+    if (name) next.players[seat].name = String(name).slice(0, 16);
+    if (AVATARS.includes(avatar)) next.players[seat].avatar = avatar;
     conn.send({ type: "welcome", seatId: seat, state: redactStateForSeat(next, seat) });
     setState(next);
   }, []);
 
   const handleGuestAction = useCallback((conn, msg) => {
     const seat = connToSeatRef.current.get(conn);
-    if (seat == null || msg?.type !== "action") return;
-    setState(engine.applyAction(stateRef.current, seat, msg.actionType, msg.amount));
+    if (seat == null) return;
+    if (msg?.type === "action") setState(engine.applyAction(stateRef.current, seat, msg.actionType, msg.amount));
+    else if (msg?.type === "rebuy") setState(engine.rebuy(stateRef.current, seat));
   }, []);
 
   const handleGuestLeave = useCallback((conn) => {
@@ -240,6 +234,10 @@ export default function Poker() {
 
   // ─── Lobby seat editing (host only, table not yet started) ────────────────
   const addSeat = useCallback(() => setState(prev => engine.addAiSeat(prev)), []);
+  const changeLobbyConfig = useCallback((next) => {
+    setConfig(next);
+    setState(prev => engine.applyConfig(prev, next));
+  }, [setConfig]);
 
   // Removing a seat can shift every later seat's index down by one — the
   // connection maps below track guests by seat index, so they need to be
@@ -286,19 +284,31 @@ export default function Poker() {
     if (state.handNumber === 0 && view === "table") setView("lobby");
   }, [state.handNumber, view, role]);
 
+  // Table sounds: diff each state against the previous one. Runs for every
+  // role — a guest's states arrive over the network but diff the same way.
+  const soundPrevRef = useRef(null);
+  useEffect(() => {
+    const prev = soundPrevRef.current;
+    soundPrevRef.current = state;
+    if (soundOn && view === "table") playEvents(diffEvents(prev, state, mySeatId));
+  }, [state, soundOn, view, mySeatId]);
+
+  const myIdentity = () => ({
+    name: identity.name.trim() || randomIdentity().name,
+    avatar: identity.avatar,
+  });
+
   // ─── Menu actions ───────────────────────────────────────────────────────────
   const playSolo = () => {
     setRole("solo"); setMySeatId(HUMAN_ID);
-    setState(engine.startHand(engine.createInitialState(seatCount)));
+    setState(engine.startHand(engine.createInitialState(seatCount, config, myIdentity())));
     setView("table");
   };
 
   const hostGame = async () => {
     setStatusMsg("Starting room…");
     try {
-      const named = engine.createInitialState(seatCount);
-      named.players[HUMAN_ID].name = nameInput.trim() || "Host";
-      setState(named);
+      setState(engine.createInitialState(seatCount, config, myIdentity()));
       const { peer, roomId: newRoomId } = await hostRoom({
         onJoin: handleGuestJoin, onAction: handleGuestAction, onLeave: handleGuestLeave,
       });
@@ -320,7 +330,7 @@ export default function Poker() {
     if (!code) return;
     setStatusMsg("Connecting…");
     try {
-      const { peer, conn } = await joinRoomAsClient(code, nameInput.trim() || "Guest", {
+      const { peer, conn } = await joinRoomAsClient(code, myIdentity(), {
         onMessage: (msg) => {
           if (msg.type === "welcome") {
             // A late joiner (host already dealt hands) lands straight on the
@@ -349,8 +359,13 @@ export default function Poker() {
     }
   };
 
+  // Also the solo "Quit": back to the menu with a fresh state, which drops the
+  // solo save (see the persistence effect above).
   const leaveGame = () => {
+    // Our own close of the host connection isn't a "Disconnected" event.
+    if (clientConnRef.current) suppressCloseMsgRef.current = true;
     teardownNetwork();
+    setConfirming(null);
     setRole("solo"); setMySeatId(HUMAN_ID); setRoomId("");
     setMultiplayerMode(null); setStatusMsg("");
     setState(engine.createInitialState());
@@ -374,12 +389,12 @@ export default function Poker() {
   }, []);
 
   // ─── Table derived values ──────────────────────────────────────────────────
+  const cfg = engine.getConfig(state);
   const me = state.players[mySeatId];
   const toCall = state.currentBet - (me?.streetBet ?? 0);
-  const isMyTurn = state.street !== "waiting" && state.street !== "handOver"
-    && state.actingIndex === mySeatId && !engine.isBettingRoundOver(state);
+  const isMyTurn = isSeatsTurn(state, mySeatId);
 
-  const [raiseAmount, setRaiseAmount] = useState(engine.BIG_BLIND);
+  const [raiseAmount, setRaiseAmount] = useState(cfg.bigBlind);
 
   // Beginner odds helper (all modes): only the viewer's own hole cards and
   // the board feed it, so it reveals nothing a client couldn't already see.
@@ -392,12 +407,13 @@ export default function Poker() {
   const odds = useOdds(myHole, state.board, liveOpponents);
 
   const minRaiseTarget = state.currentBet === 0
-    ? Math.min(me?.stack ?? 0, engine.BIG_BLIND)
+    ? Math.min(me?.stack ?? 0, cfg.bigBlind)
     : Math.min((me?.stack ?? 0) + (me?.streetBet ?? 0), state.currentBet + state.minRaise);
   const maxRaiseTarget = (me?.stack ?? 0) + (me?.streetBet ?? 0);
+  const canRaise = isMyTurn && me && engine.legalActions(state, me).some(a => a === "bet" || a === "raise");
 
   useEffect(() => {
-    if (isMyTurn) setRaiseAmount(Math.min(Math.max(minRaiseTarget, engine.BIG_BLIND), maxRaiseTarget));
+    if (isMyTurn) setRaiseAmount(Math.min(Math.max(minRaiseTarget, cfg.bigBlind), maxRaiseTarget));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMyTurn, state.actingIndex, state.street]);
 
@@ -437,10 +453,15 @@ export default function Poker() {
     logEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [state.log]);
 
-  const gameOver = engine.playersRemaining(state) === 1 && state.handNumber > 0;
-  const meBusted = gameOver && me.stack === 0;
+  // Decided only once a hand is over — during an all-in run-out every stack
+  // can be 0 before the pot is paid out.
+  const tableDecided = engine.isTableDecided(state);
+  const meBusted = !!me && me.stack === 0 && (state.street === "handOver" || !me.inHand);
+  const iCanRebuy = engine.canRebuy(state, me);
+  const myRebuysLeft = me ? engine.rebuysLeft(state, me) : 0;
+  const gameOver = tableDecided && !iCanRebuy;
 
-  const canDealNext = state.street === "handOver" && !gameOver;
+  const canDealNext = state.street === "handOver" && !tableDecided;
   const revealShowdown = state.street === "handOver" && state.result && !state.result.unopposed;
   const winnerIds = new Set((state.result?.winners ?? []).map(w => w.playerId));
 
@@ -449,144 +470,197 @@ export default function Poker() {
     else setState(prev => engine.applyAction(prev, mySeatId, type, amount));
   };
 
+  const doRebuy = () => {
+    if (role === "client") clientConnRef.current?.send({ type: "rebuy" });
+    else setState(prev => engine.rebuy(prev, mySeatId));
+  };
+
   const dealNextHand = () => setState(prev => engine.startHand(prev));
   const restart = () => {
     if (role === "solo") { setState(engine.createInitialState()); setView("menu"); return; }
     setState(prev => resetForRematch(prev)); // host: keep the room/guests, go back to lobby
   };
 
-  const potOrCurrent = Math.max(state.pot, engine.BIG_BLIND);
+  const potOrCurrent = Math.max(state.pot, cfg.bigBlind);
   const presets = [
-    { label: "1/2 Pot", value: Math.round(state.currentBet + potOrCurrent * 0.5) },
+    { label: "½ Pot", value: Math.round(state.currentBet + potOrCurrent * 0.5) },
     { label: "Pot", value: Math.round(state.currentBet + potOrCurrent) },
     { label: "All-in", value: maxRaiseTarget },
   ];
 
-  const seatPositions = generateSeatPositions(state.players.length);
+  // Rotated so the viewer's own seat is always at the bottom, like Chess
+  // flipping the board for Black. Display-only — seat ids are untouched.
+  const n = state.players.length;
+  const slots = generateSeatPositions(n);
+  const seatPosition = i => slots[(i - mySeatId + n) % n];
+
+  useEffect(() => {
+    if (!confirming) return;
+    const t = setTimeout(() => setConfirming(null), 3000);
+    return () => clearTimeout(t);
+  }, [confirming]);
+  // Header buttons need two taps (within 3s) so a stray click can't throw a game away.
+  const confirmThen = (key, fn) => () => {
+    if (confirming === key) { setConfirming(null); fn(); } else setConfirming(key);
+  };
+  const armed = key => (confirming === key ? "bg-red-700 hover:bg-red-600" : "bg-slate-700 hover:bg-slate-600");
 
   // ─── Views ──────────────────────────────────────────────────────────────────
 
-  // The table view gets its own compact, height-bounded layout (rather than
-  // sharing the menu/lobby views' free-scrolling page wrapper below) — the
-  // big title, a viewport-percentage-guessed felt height, and a separately
-  // stacked action bar routinely added up to taller than the screen, forcing
-  // a scroll just to reach Fold/Call/Raise. Header shrinks to a single line,
-  // the felt takes exactly whatever's left via flex, and the action bar sits
-  // right under it — nothing left over to push off-screen on a real phone.
+  // The table view gets its own compact, height-bounded layout: a one-line
+  // header, the felt taking exactly whatever height is left, and the action
+  // bar under it — so Fold/Call/Raise never need a scroll. The felt sizes
+  // itself with container-query units against that leftover box, so it
+  // shrinks on short desktop windows instead of keeping a fixed 4:3 height.
   if (view === "table") {
+    const btn = "px-4 py-1.5 sm:py-2 rounded-full text-sm sm:text-base font-semibold transition-colors";
     return (
       <div className="h-full flex flex-col bg-gradient-to-b from-slate-950 to-slate-900 text-white">
         <style>{globalStyles}</style>
 
         {/* pt-14 keeps this clear of Games.jsx's fixed "← Back" button
             (top-4 left-4) on narrow screens; sm+ has room to spare already. */}
-        <div className="shrink-0 flex items-center justify-between gap-2 px-3 pt-14 sm:pt-3 pb-2">
+        <div className="shrink-0 flex items-center justify-between gap-2 px-3 pt-14 sm:pt-3 pb-1 sm:pl-32">
           <div className="min-w-0 flex items-baseline gap-1.5 text-xs sm:text-sm text-slate-300">
             <span className="font-bold text-white whitespace-nowrap">🃏 Poker</span>
             <span className="text-slate-600">·</span>
-            <span className="truncate">Hand #{state.handNumber} · Pot ${state.pot}</span>
+            <span className="truncate">Hand #{state.handNumber} · Blinds ${cfg.smallBlind}/${cfg.bigBlind}</span>
           </div>
           <button
+            onClick={() => setSoundOn(v => !v)}
+            className="shrink-0 ml-auto w-8 h-7 rounded-full bg-slate-700 hover:bg-slate-600 text-xs transition-colors"
+            title={soundOn ? "Mute table sounds" : "Unmute table sounds"}
+          >
+            {soundOn ? "🔊" : "🔇"}
+          </button>
+          <button
             onClick={() => setOddsOpen(true)}
-            className="shrink-0 ml-auto px-3 py-1 rounded-full bg-emerald-800 hover:bg-emerald-700 text-xs transition-colors"
+            className="shrink-0 px-3 py-1 rounded-full bg-emerald-800 hover:bg-emerald-700 text-xs transition-colors"
             title="Your chances, pot odds and hand rankings"
           >
             📊 Odds
           </button>
-          {role !== "solo" && (
-            <button onClick={leaveGame} className="shrink-0 px-3 py-1 rounded-full bg-slate-700 hover:bg-slate-600 text-xs transition-colors">
-              Leave
+          {role === "host" && (
+            <button
+              onClick={confirmThen("restart", restart)}
+              className={`shrink-0 px-3 py-1 rounded-full text-xs transition-colors ${armed("restart")}`}
+              title="Start over: back to the lobby with the same room and players"
+            >
+              {confirming === "restart" ? "Sure?" : "Restart"}
             </button>
           )}
+          <button
+            onClick={confirmThen("quit", leaveGame)}
+            className={`shrink-0 px-3 py-1 rounded-full text-xs transition-colors ${armed("quit")}`}
+            title={role === "solo" ? "Quit this game and return to the menu" : "Leave the room"}
+          >
+            {confirming === "quit" ? "Sure?" : role === "solo" ? "Quit" : "Leave"}
+          </button>
         </div>
 
-        {/* Felt + seats — fills whatever's left on mobile instead of a
-            guessed vh height; a fixed aspect-ratio once there's room to
-            spare (sm+), matching the pre-fix desktop look. */}
-        <div className="relative flex-1 min-h-[200px] w-full max-w-3xl mx-auto px-2 sm:flex-none sm:aspect-[4/3]">
-          <div className="absolute inset-[6%] rounded-[50%] bg-gradient-radial-felt border-[10px] border-[#5b3a1e] shadow-2xl" />
+        <div className="relative flex-1 min-h-[220px] w-full px-2" style={{ containerType: "size" }}>
+          <div
+            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+            style={{ width: "min(100cqw, 820px, 165cqh)", height: "min(100cqh, 115cqw)" }}
+          >
+            <div className="absolute inset-x-[7%] inset-y-[11%] rounded-[50%] bg-gradient-radial-felt border-[8px] sm:border-[10px] border-[#5b3a1e] shadow-2xl" />
 
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4">
-            <div className="text-[10px] uppercase tracking-widest text-emerald-200/70">
-              {state.street === "handOver" ? "Hand Over" : state.street}
-            </div>
-            <div className="flex justify-center gap-1.5 min-h-[52px]">
-              {state.board.map((c, i) => <Card key={i} card={c} />)}
-              {state.board.length === 0 && <span className="text-emerald-100/40 text-xs self-center">— pre-flop —</span>}
-            </div>
-            <div className="px-3 py-1 rounded-full bg-black/40 border border-emerald-400/30 text-emerald-300 font-mono text-sm">
-              Pot: ${state.pot}
-            </div>
-            {revealShowdown && (
-              <div className="mt-1 text-[11px] text-amber-300 text-center max-w-[220px]">
-                {Object.entries(state.result.hands).map(([id, hand]) => (
-                  <div key={id}>{state.players.find(p => p.id === Number(id)).name}: {describeHand(hand)}</div>
-                ))}
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-4">
+              <div className="text-[10px] uppercase tracking-widest text-emerald-200/70">
+                {state.street === "handOver" ? "Hand Over" : state.street}
               </div>
-            )}
-          </div>
+              <div className="flex justify-center gap-1 sm:gap-1.5 min-h-[38px] sm:min-h-[52px]">
+                {state.board.map((c, i) => <Card key={i} card={c} size="seat" />)}
+                {state.board.length === 0 && <span className="text-emerald-100/40 text-xs self-center">— pre-flop —</span>}
+              </div>
+              <div className="px-3 py-0.5 rounded-full bg-black/40 border border-emerald-400/30 text-emerald-300 font-mono text-sm">
+                Pot: ${state.pot}
+              </div>
+              {revealShowdown && (
+                <div className="text-[10px] sm:text-[11px] text-amber-300 text-center max-w-[220px] leading-tight">
+                  {Object.entries(state.result.hands).map(([id, hand]) => (
+                    <div key={id}>{state.players.find(p => p.id === Number(id)).name}: {describeHand(hand)}</div>
+                  ))}
+                </div>
+              )}
+            </div>
 
-          {state.players.map((p, i) => (
-            <Seat
-              key={p.id}
-              player={p}
-              isDealer={i === state.dealerIndex}
-              isActing={i === state.actingIndex && state.street !== "handOver" && state.street !== "waiting"}
-              showFace={p.id === mySeatId || revealShowdown}
-              isWinner={winnerIds.has(p.id)}
-              position={seatPositions[i]}
-            />
-          ))}
+            {state.players.map((p, i) => (
+              <Seat
+                key={p.id}
+                player={p}
+                isDealer={i === state.dealerIndex}
+                isActing={i === state.actingIndex && handLive}
+                showFace={p.id === mySeatId || (revealShowdown && !p.folded)}
+                isWinner={winnerIds.has(p.id)}
+                isMe={p.id === mySeatId}
+                position={seatPosition(i)}
+              />
+            ))}
+          </div>
         </div>
 
-        {/* Bottom controls — exactly one of these is ever shown at a time
-            (isMyTurn / canDealNext / gameOver are mutually exclusive game
-            states), tighter padding on mobile so it always fits under the
-            felt without inflating past the space flex-1 left it. */}
-        <div className="shrink-0 px-3 pb-3 pt-1">
+        {/* Bottom controls — one compact block; on sm+ the action buttons,
+            slider and presets share a single row. */}
+        <div className="shrink-0 px-3 pb-3 pt-1 max-w-3xl w-full mx-auto">
           {showOddsBadge && myHole.length === 2 && liveOpponents > 0 && (
-            <div className="max-w-md mx-auto">
-              <OddsBadge hole={myHole} board={state.board} odds={odds} opponents={liveOpponents} onOpen={() => setOddsOpen(true)} />
+            <OddsBadge hole={myHole} board={state.board} odds={odds} opponents={liveOpponents} onOpen={() => setOddsOpen(true)} />
+          )}
+
+          {isMyTurn && (
+            <div className="bg-slate-800 rounded-2xl border border-slate-700 p-2 shadow-lg flex flex-wrap items-center justify-center gap-1.5 sm:gap-2">
+              <button onClick={() => act("fold")} className={`${btn} bg-red-700 hover:bg-red-600`}>Fold</button>
+              <button onClick={() => act(toCall > 0 ? "call" : "check")} className={`${btn} bg-slate-600 hover:bg-slate-500`}>
+                {toCall > 0 ? `Call $${Math.min(toCall, me.stack)}` : "Check"}
+              </button>
+              {canRaise && (
+                <>
+                  <button onClick={() => act(state.currentBet === 0 ? "bet" : "raise", raiseAmount)} className={`${btn} bg-emerald-700 hover:bg-emerald-600`}>
+                    {raiseAmount >= maxRaiseTarget ? "All-in"
+                      : state.currentBet === 0 ? `Bet $${raiseAmount}` : `Raise to $${raiseAmount}`}
+                  </button>
+                  <div className="flex items-center gap-1.5 sm:gap-2 basis-full sm:basis-auto justify-center">
+                    {/* Slider floors at whichever is smaller: the formal min-raise, or the
+                        player's whole stack — a short stack can still shove all-in even
+                        when that's below a full min-raise (engine.js allows this). */}
+                    <input
+                      type="range" min={Math.min(minRaiseTarget, maxRaiseTarget)} max={Math.max(maxRaiseTarget, minRaiseTarget)} value={raiseAmount}
+                      onChange={e => setRaiseAmount(Number(e.target.value))}
+                      className="poker-slider w-32 sm:w-36"
+                    />
+                    {presets.map(p => (
+                      <button key={p.label}
+                        onClick={() => setRaiseAmount(Math.max(minRaiseTarget, Math.min(maxRaiseTarget, p.value)))}
+                        className="px-2.5 py-1 text-[11px] sm:text-xs rounded-full bg-slate-700 hover:bg-slate-600 transition-colors">
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
-          {isMyTurn && (
-            <div className="bg-slate-800 rounded-2xl border border-slate-700 p-2 sm:p-4 shadow-lg">
-              <div className="flex flex-wrap gap-1.5 sm:gap-2 justify-center mb-2 sm:mb-3">
-                <button onClick={() => act("fold")} className="px-4 sm:px-5 py-1.5 sm:py-2 rounded-full bg-red-700 hover:bg-red-600 text-sm sm:text-base font-semibold transition-colors">Fold</button>
-                <button onClick={() => act(toCall > 0 ? "call" : "check")} className="px-4 sm:px-5 py-1.5 sm:py-2 rounded-full bg-slate-600 hover:bg-slate-500 text-sm sm:text-base font-semibold transition-colors">
-                  {toCall > 0 ? `Call $${Math.min(toCall, me.stack)}` : "Check"}
+
+          {iCanRebuy && (
+            <div className="text-center bg-slate-800 rounded-2xl p-3 border border-amber-500/60 shadow-lg mb-2">
+              <p className="text-sm sm:text-base font-semibold mb-2">😵 You&apos;re out of chips.</p>
+              <div className="flex gap-2 justify-center flex-wrap">
+                <button onClick={doRebuy} className={`${btn} bg-amber-600 hover:bg-amber-500`}>
+                  Re-buy ${cfg.startingStack}
+                  <span className="text-xs font-normal opacity-80"> · {myRebuysLeft === Infinity ? "unlimited" : `${myRebuysLeft} left`}</span>
                 </button>
-                <button
-                  onClick={() => act(state.currentBet === 0 ? "bet" : "raise", raiseAmount)}
-                  className="px-4 sm:px-5 py-1.5 sm:py-2 rounded-full bg-emerald-700 hover:bg-emerald-600 text-sm sm:text-base font-semibold transition-colors"
-                >
-                  {raiseAmount >= maxRaiseTarget ? "All-in"
-                    : state.currentBet === 0 ? `Bet $${raiseAmount}` : `Raise to $${raiseAmount}`}
-                </button>
-              </div>
-              <div className="flex items-center gap-2 sm:gap-3 justify-center flex-wrap">
-                {/* Slider floors at whichever is smaller: the formal min-raise, or the
-                    player's whole stack — a short stack can still shove all-in even
-                    when that's below a full min-raise (engine.js allows this). */}
-                <input
-                  type="range" min={Math.min(minRaiseTarget, maxRaiseTarget)} max={Math.max(maxRaiseTarget, minRaiseTarget)} value={raiseAmount}
-                  onChange={e => setRaiseAmount(Number(e.target.value))}
-                  className="poker-slider w-40 sm:w-48"
-                />
-                {presets.map(p => (
-                  <button key={p.label}
-                    onClick={() => setRaiseAmount(Math.max(minRaiseTarget, Math.min(maxRaiseTarget, p.value)))}
-                    className="px-2.5 sm:px-3 py-1 text-[11px] sm:text-xs rounded-full bg-slate-700 hover:bg-slate-600 transition-colors">
-                    {p.label}
+                {tableDecided && role !== "client" && (
+                  <button onClick={restart} className={`${btn} bg-slate-600 hover:bg-slate-500`}>
+                    {role === "host" ? "Rematch" : "New game"}
                   </button>
-                ))}
+                )}
               </div>
             </div>
           )}
 
           {canDealNext && role !== "client" && (
             <div className="text-center">
-              <button onClick={dealNextHand} className="px-6 py-2.5 sm:py-3 rounded-full bg-indigo-600 hover:bg-indigo-500 font-semibold shadow-lg transition-colors">
+              <button onClick={dealNextHand} className="px-6 py-2.5 rounded-full bg-indigo-600 hover:bg-indigo-500 font-semibold shadow-lg transition-colors">
                 Next Hand
               </button>
             </div>
@@ -595,20 +669,16 @@ export default function Poker() {
             <p className="text-center text-slate-500 text-sm">Waiting for the host to deal the next hand…</p>
           )}
 
-          {gameOver && role !== "client" && (
-            <div className="text-center bg-slate-800 rounded-2xl p-4 sm:p-6 border border-amber-500 shadow-xl">
-              <p className="text-lg sm:text-xl font-bold mb-2 sm:mb-3">
-                {meBusted ? "😵 You're out of chips." : "🏆 You won the table!"}
-              </p>
-              <button onClick={restart} className="px-6 py-2.5 sm:py-3 rounded-full bg-indigo-600 hover:bg-indigo-500 font-semibold transition-colors">
-                {role === "host" ? "Rematch" : "Restart"}
-              </button>
-            </div>
-          )}
-          {gameOver && role === "client" && (
-            <div className="text-center bg-slate-800 rounded-2xl p-4 sm:p-6 border border-amber-500 shadow-xl">
-              <p className="text-lg sm:text-xl font-bold">{meBusted ? "😵 You're out of chips." : "🏆 You won the table!"}</p>
-              <p className="text-slate-400 text-sm mt-1 sm:mt-2">Waiting for the host to start a rematch…</p>
+          {gameOver && (
+            <div className="text-center bg-slate-800 rounded-2xl p-3 sm:p-5 border border-amber-500 shadow-xl">
+              <p className="text-lg sm:text-xl font-bold mb-2">{meBusted ? "😵 You're out of chips." : "🏆 You won the table!"}</p>
+              {role !== "client" ? (
+                <button onClick={restart} className="px-6 py-2.5 rounded-full bg-indigo-600 hover:bg-indigo-500 font-semibold transition-colors">
+                  {role === "host" ? "Rematch" : "Restart"}
+                </button>
+              ) : (
+                <p className="text-slate-400 text-sm">Waiting for the host to start a rematch…</p>
+              )}
             </div>
           )}
         </div>
@@ -639,13 +709,15 @@ export default function Poker() {
       <div className="max-w-5xl mx-auto">
         <h1 className="text-3xl font-bold text-center mb-1 tracking-tight">🃏 Poker</h1>
         <p className="text-center text-slate-400 text-sm mb-6">
-          Texas Hold&apos;em · No-Limit · blinds ${engine.SMALL_BLIND}/${engine.BIG_BLIND}
+          Texas Hold&apos;em · No-Limit · {engine.describeConfig(view === "menu" ? config : state.config)}
         </p>
 
         {view === "menu" && (
           <div className="bg-slate-800 rounded-2xl p-6 sm:p-8 border border-slate-700 shadow-xl max-w-md mx-auto">
+            <IdentityPicker identity={identity} onChange={setIdentity} />
+
             {multiplayerMode !== "join" && (
-              <PlayerCountStepper value={seatCount} onChange={setSeatCount} label="Table size" />
+              <TableSettings config={config} onChange={setConfig} seatCount={seatCount} onSeatCount={setSeatCount} />
             )}
 
             <button onClick={playSolo} className="w-full px-6 py-3 rounded-full bg-indigo-600 hover:bg-indigo-500 font-semibold shadow-lg transition-colors mb-5">
@@ -669,8 +741,9 @@ export default function Poker() {
 
             {multiplayerMode === "host" && (
               <div className="flex flex-col gap-2 mb-5">
-                <input placeholder="Your name" value={nameInput} onChange={e => setNameInput(e.target.value)}
-                  className="px-3 py-2 rounded-lg bg-slate-900 border border-slate-600 text-sm outline-none focus:border-indigo-500" />
+                <p className="text-xs text-slate-400">
+                  Uses the settings above. Seats nobody claims are played by AI.
+                </p>
                 <label className="flex items-center gap-2 text-xs text-slate-400">
                   <input type="checkbox" checked={discoverable} onChange={e => setDiscoverable(e.target.checked)} />
                   List this room publicly so others can find it below
@@ -684,8 +757,6 @@ export default function Poker() {
 
             {multiplayerMode === "join" && (
               <div className="flex flex-col gap-2 mb-5">
-                <input placeholder="Your name" value={nameInput} onChange={e => setNameInput(e.target.value)}
-                  className="px-3 py-2 rounded-lg bg-slate-900 border border-slate-600 text-sm outline-none focus:border-indigo-500" />
                 <input placeholder="Room code (e.g. AB12CD)" value={joinInput}
                   onChange={e => setJoinInput(e.target.value.toUpperCase())}
                   onKeyDown={e => e.key === "Enter" && joinGame()}
@@ -725,47 +796,23 @@ export default function Poker() {
         {view === "lobby" && role === "host" && (
           <div className="bg-slate-800 rounded-2xl p-6 sm:p-8 border border-slate-700 shadow-xl max-w-md mx-auto text-center">
             <h2 className="text-xl font-bold mb-1">Room ready</h2>
-            <p className="text-slate-400 text-sm mb-4">Share the code, link, or QR — start whenever you're ready.</p>
-            <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 mb-3">
-              <code className="flex-1 text-xl tracking-widest text-indigo-300 font-mono">{roomId}</code>
-              <CopyButton text={roomId} label="Copy Code" />
-            </div>
-            <div className="flex items-center gap-2 mb-4">
-              <code className="flex-1 text-[11px] text-slate-500 truncate text-left">{buildShareLink(roomId)}</code>
-              <CopyButton text={buildShareLink(roomId)} label="Copy Link" />
-            </div>
-            <img src={buildQrUrl(buildShareLink(roomId), 180)} alt="Scan to join" width={160} height={160} className="mx-auto rounded-lg mb-4 bg-white p-2" />
-
-            <div className="text-left bg-slate-900 rounded-xl p-3 mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs text-slate-400">Players ({state.players.length}/{engine.MAX_SEATS})</p>
-                <button
-                  onClick={addSeat}
-                  disabled={state.players.length >= engine.MAX_SEATS}
-                  className="px-2.5 py-1 rounded-full bg-slate-700 hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-semibold transition-colors"
-                >+ Add AI seat</button>
+            <p className="text-slate-400 text-sm mb-4">Share the code, link, or QR — start whenever you&apos;re ready.</p>
+            <div className="flex gap-3 items-center mb-4">
+              <img src={buildQrUrl(buildShareLink(roomId), 180)} alt="Scan to join" width={104} height={104} className="rounded-lg bg-white p-1.5 flex-shrink-0" />
+              <div className="flex-1 min-w-0 flex flex-col gap-2">
+                <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2">
+                  <code className="flex-1 text-lg tracking-widest text-indigo-300 font-mono text-left">{roomId}</code>
+                  <CopyButton text={roomId} label="Code" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-[11px] text-slate-500 truncate text-left">{buildShareLink(roomId)}</code>
+                  <CopyButton text={buildShareLink(roomId)} label="Link" />
+                </div>
               </div>
-              <ul className="space-y-1 text-sm">
-                {state.players.map((p, i) => (
-                  <li key={p.id} className="flex justify-between items-center gap-2">
-                    <span className="truncate">{p.name}</span>
-                    <span className="flex items-center gap-2 flex-shrink-0">
-                      <span className={p.isHuman || i === HUMAN_ID ? "text-emerald-400" : "text-slate-500"}>
-                        {i === HUMAN_ID ? "You (host)" : p.isHuman ? "✅ connected" : "🤖 AI"}
-                      </span>
-                      {i !== HUMAN_ID && (
-                        <button
-                          onClick={() => removeSeatAt(i)}
-                          disabled={state.players.length <= engine.MIN_SEATS}
-                          title={p.isHuman ? "Remove (kicks this player)" : "Remove seat"}
-                          className="w-5 h-5 rounded-full bg-red-800/60 hover:bg-red-700 disabled:opacity-20 disabled:cursor-not-allowed text-[11px] leading-5 text-center transition-colors"
-                        >✕</button>
-                      )}
-                    </span>
-                  </li>
-                ))}
-              </ul>
             </div>
+
+            <TableSettings config={state.config} onChange={changeLobbyConfig} />
+            <SeatList players={state.players} mySeatId={mySeatId} onAdd={addSeat} onRemove={removeSeatAt} />
 
             <div className="flex gap-2">
               <button onClick={leaveGame} className="px-4 py-2 rounded-full bg-red-700 hover:bg-red-600 text-sm transition-colors">Cancel</button>
@@ -775,9 +822,11 @@ export default function Poker() {
         )}
 
         {view === "lobby" && role === "client" && (
-          <div className="bg-slate-800 rounded-2xl p-8 border border-slate-700 shadow-xl max-w-md mx-auto text-center">
-            <h2 className="text-xl font-bold mb-2">Connected!</h2>
-            <p className="text-slate-400 text-sm mb-6">You're seat {mySeatId + 1} — waiting for the host to start…</p>
+          <div className="bg-slate-800 rounded-2xl p-6 sm:p-8 border border-slate-700 shadow-xl max-w-md mx-auto text-center">
+            <h2 className="text-xl font-bold mb-1">Connected!</h2>
+            <p className="text-slate-400 text-sm mb-4">Waiting for the host to start…</p>
+            <TableSettings config={state.config} readOnly />
+            <SeatList players={state.players} mySeatId={mySeatId} />
             <button onClick={leaveGame} className="px-6 py-2 rounded-full bg-red-700 hover:bg-red-600 font-semibold transition-colors">Leave</button>
           </div>
         )}

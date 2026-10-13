@@ -35,7 +35,7 @@ export async function hostRoom({ onJoin, onAction, onLeave, onError }) {
       settled = true;
       peer.on("connection", (conn) => {
         conn.on("data", (msg) => {
-          if (msg?.type === "hello") onJoin(conn, msg.name);
+          if (msg?.type === "hello") onJoin(conn, { name: msg.name, avatar: msg.avatar });
           else onAction(conn, msg);
         });
         conn.on("close", () => onLeave(conn));
@@ -48,9 +48,9 @@ export async function hostRoom({ onJoin, onAction, onLeave, onError }) {
 }
 
 // Joins an existing room by code. Resolves once the data connection is open;
-// the caller supplies its display name, which the host echoes back attached
-// to whichever seat it assigns.
-export async function joinRoomAsClient(roomId, name, { onMessage, onClose, onError }) {
+// the caller supplies its identity ({ name, avatar }), which the host echoes
+// back attached to whichever seat it assigns.
+export async function joinRoomAsClient(roomId, { name, avatar }, { onMessage, onClose, onError }) {
   const iceServers = await getIceServers();
   const peer = new Peer(undefined, { config: { iceServers } });
 
@@ -60,7 +60,7 @@ export async function joinRoomAsClient(roomId, name, { onMessage, onClose, onErr
       const conn = peer.connect(roomId, { reliable: true });
       conn.on("open", () => {
         settled = true;
-        conn.send({ type: "hello", name });
+        conn.send({ type: "hello", name, avatar });
         resolve({ peer, conn });
       });
       conn.on("data", onMessage);
