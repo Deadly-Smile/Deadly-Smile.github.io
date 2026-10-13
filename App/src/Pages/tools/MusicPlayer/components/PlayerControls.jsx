@@ -2,14 +2,37 @@ import styles from "../MusicPlayer.module.css";
 import VolumeSlider from "./VolumeSlider";
 import { formatTime } from "../utils";
 import { SHORTCUT_HELP } from "../shortcuts";
+import { useAudioTime } from "../hooks/useAudioTime";
 
 const REPEAT_ICONS = { off: "🔁", all: "🔁", one: "🔂" };
 const REPEAT_LABELS = { off: "Repeat Off", all: "Repeat All", one: "Repeat One" };
 
+// Its own component so the ~4×/s position updates re-render only this row.
+function SeekRow({ audioRef, duration, onSeek, disabled }) {
+  const currentTime = useAudioTime(audioRef);
+  return (
+    <div className={styles.seekRow}>
+      <span className={styles.timeLabel}>{formatTime(currentTime)}</span>
+      <input
+        type="range"
+        className={styles.range}
+        min={0}
+        max={duration || 0}
+        step={0.1}
+        value={Math.min(currentTime, duration || 0)}
+        onChange={(e) => onSeek(Number(e.target.value))}
+        disabled={disabled}
+        aria-label="Seek"
+      />
+      <span className={styles.timeLabel}>{formatTime(duration)}</span>
+    </div>
+  );
+}
+
 export default function PlayerControls({
   currentTrack,
   isPlaying,
-  currentTime,
+  audioRef,
   duration,
   onTogglePlay,
   onSeek,
@@ -33,21 +56,7 @@ export default function PlayerControls({
         )}
       </div>
 
-      <div className={styles.seekRow}>
-        <span className={styles.timeLabel}>{formatTime(currentTime)}</span>
-        <input
-          type="range"
-          className={styles.range}
-          min={0}
-          max={duration || 0}
-          step={0.1}
-          value={Math.min(currentTime, duration || 0)}
-          onChange={(e) => onSeek(Number(e.target.value))}
-          disabled={!currentTrack}
-          aria-label="Seek"
-        />
-        <span className={styles.timeLabel}>{formatTime(duration)}</span>
-      </div>
+      <SeekRow audioRef={audioRef} duration={duration} onSeek={onSeek} disabled={!currentTrack} />
 
       <div className={styles.transportControls}>
         <button

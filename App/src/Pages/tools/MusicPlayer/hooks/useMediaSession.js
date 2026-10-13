@@ -6,12 +6,12 @@ const SEEK_STEP_SECONDS = 10;
 // shows the track in the media notification / lock screen with working
 // play/pause/next/previous/seek, routes headset and Bluetooth buttons here,
 // and makes Chrome far less likely to freeze or discard the backgrounded tab.
-export function useMediaSession({ track, coverBlob, isPlaying, currentTime, duration, onPlay, onPause, onNext, onPrevious, onSeek }) {
+export function useMediaSession({ track, coverBlob, isPlaying, audioRef, getCurrentTime, duration, onPlay, onPause, onNext, onPrevious, onSeek }) {
   const supported = typeof navigator !== "undefined" && "mediaSession" in navigator;
 
   // Handlers are registered once; refs carry the latest callbacks/time.
   const latest = useRef({});
-  latest.current = { currentTime, duration, onPlay, onPause, onNext, onPrevious, onSeek };
+  latest.current = { getCurrentTime, duration, onPlay, onPause, onNext, onPrevious, onSeek };
 
   useEffect(() => {
     if (!supported) return;
@@ -29,8 +29,8 @@ export function useMediaSession({ track, coverBlob, isPlaying, currentTime, dura
       nexttrack: () => latest.current.onNext(),
       previoustrack: () => latest.current.onPrevious(),
       seekto: (e) => { if (Number.isFinite(e.seekTime)) seekTo(e.seekTime); },
-      seekbackward: (e) => seekTo(latest.current.currentTime - (e.seekOffset || SEEK_STEP_SECONDS)),
-      seekforward: (e) => seekTo(latest.current.currentTime + (e.seekOffset || SEEK_STEP_SECONDS)),
+      seekbackward: (e) => seekTo(latest.current.getCurrentTime() - (e.seekOffset || SEEK_STEP_SECONDS)),
+      seekforward: (e) => seekTo(latest.current.getCurrentTime() + (e.seekOffset || SEEK_STEP_SECONDS)),
     };
     for (const [action, fn] of Object.entries(handlers)) {
       try { ms.setActionHandler(action, fn); } catch { /* action unsupported by this browser */ }
@@ -71,23 +71,23 @@ export function useMediaSession({ track, coverBlob, isPlaying, currentTime, dura
 
   // Position for the notification's progress bar. The OS extrapolates while
   // playing, so this only needs refreshing on play/pause, track change and
-  // seeks (a jump of more than a couple of seconds from the expected time).
-  const lastSyncRef = useRef({ at: 0, pos: 0 });
+  // seeks — the latter straight off the element's "seeked" event, since the
+  // position isn't React state (see useAudioPlayer).
   useEffect(() => {
     if (!supported || !navigator.mediaSession.setPositionState) return;
     if (!track || !Number.isFinite(duration) || duration <= 0) return;
-    const now = performance.now();
-    const { at, pos } = lastSyncRef.current;
-    const expected = pos + (isPlaying ? (now - at) / 1000 : 0);
-    const jumped = Math.abs(currentTime - expected) > 2;
-    if (!jumped && at !== 0 && lastSyncRef.current.key === `${track.id}|${isPlaying}|${duration}`) return;
-    try {
-      navigator.mediaSession.setPositionState({
-        duration,
-        playbackRate: 1,
-        position: Math.min(Math.max(0, currentTime), duration),
-      });
-      lastSyncRef.current = { at: now, pos: currentTime, key: `${track.id}|${isPlaying}|${duration}` };
-    } catch { /* invalid state mid-load */ }
-  }, [supported, track, isPlaying, currentTime, duration]);
+    const sync = () => {
+      try {
+        navigator.mediaSession.setPositionState({
+          duration,
+          playbackRate: 1,
+          position: Math.min(Math.max(0, latest.current.getCurrentTime()), duration),
+        });
+      } catch { /* invalid state mid-load */ }
+    };
+    sync();
+    const audio = audioRef?.current;
+    audio?.addEventListener("seeked", sync);
+    return () => audio?.removeEventListener("seeked", sync);
+  }, [supported, track, isPlaying, duration, audioRef]);
 }

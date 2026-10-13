@@ -103,9 +103,9 @@ export default function MusicPlayer() {
       case "pause": player.pause(); break;
       case "next": goNext(); break;
       case "previous": shuffleQueue.previous(); break;
-      case "seekBack": player.seek(Math.max(0, player.currentTime - SEEK_STEP_SECONDS)); break;
+      case "seekBack": player.seek(Math.max(0, player.getCurrentTime() - SEEK_STEP_SECONDS)); break;
       case "seekForward":
-        if (player.duration) player.seek(Math.min(player.duration, player.currentTime + SEEK_STEP_SECONDS));
+        if (player.duration) player.seek(Math.min(player.duration, player.getCurrentTime() + SEEK_STEP_SECONDS));
         break;
       case "volumeUp": player.setVolume(clampVolume(player.volume + VOLUME_STEP)); break;
       case "volumeDown": player.setVolume(clampVolume(player.volume - VOLUME_STEP)); break;
@@ -125,7 +125,8 @@ export default function MusicPlayer() {
     track: currentTrack,
     coverBlob: library.albums.find((a) => a.id === currentTrack?.albumId)?.coverImageBlob ?? null,
     isPlaying: player.isPlaying,
-    currentTime: player.currentTime,
+    audioRef: player.audioRef,
+    getCurrentTime: player.getCurrentTime,
     duration: player.duration,
     onPlay: () => performAction("play", { mediaKey: true }),
     onPause: () => performAction("pause", { mediaKey: true }),
@@ -380,7 +381,7 @@ export default function MusicPlayer() {
       <PlayerControls
         currentTrack={currentTrack}
         isPlaying={player.isPlaying}
-        currentTime={player.currentTime}
+        audioRef={player.audioRef}
         duration={player.duration}
         onTogglePlay={player.togglePlay}
         onSeek={player.seek}

@@ -46,7 +46,10 @@ export function useAudioPlayer(track, { repeatMode, onNaturalEnd } = {}) {
   onNaturalEndRef.current = onNaturalEnd;
 
   const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
+  // The playback position deliberately isn't state here: "timeupdate" fires
+  // ~4×/s, and holding it in this hook re-rendered the whole player (track
+  // lists included) on every tick. Components that show it subscribe with
+  // useAudioTime(); handlers read getCurrentTime().
   const [duration, setDuration] = useState(0);
   const [volume, setVolumeState] = useState(() => getSettings().volume);
 
@@ -60,7 +63,6 @@ export function useAudioPlayer(track, { repeatMode, onNaturalEnd } = {}) {
     if (!audio) return;
 
     const handleTimeUpdate = () => {
-      setCurrentTime(audio.currentTime);
       if (audio.currentTime - lastSaveRef.current >= LAST_STATE_SAVE_INTERVAL_SECONDS) {
         lastSaveRef.current = audio.currentTime;
         saveLastState({ lastTrackId: trackRef.current?.id ?? null, lastPositionSeconds: audio.currentTime });
@@ -74,7 +76,6 @@ export function useAudioPlayer(track, { repeatMode, onNaturalEnd } = {}) {
         const { lastTrackId, lastPositionSeconds } = getLastState();
         if (trackRef.current && lastTrackId === trackRef.current.id && lastPositionSeconds > 0) {
           audio.currentTime = lastPositionSeconds;
-          setCurrentTime(lastPositionSeconds);
         }
       }
     };
@@ -146,7 +147,6 @@ export function useAudioPlayer(track, { repeatMode, onNaturalEnd } = {}) {
     // explicit .load() right before .play() can abort that pending play()
     // with a spurious "interrupted by a new load request" error.
     audio.src = url;
-    setCurrentTime(0);
     setDuration(0);
     // Revoke the OLD blob URL only now that audio.src no longer points at
     // it — revoking it while it was still the active src (as before) fires
@@ -205,7 +205,6 @@ export function useAudioPlayer(track, { repeatMode, onNaturalEnd } = {}) {
     const ended = audio.ended;
     audio.pause();
     audio.currentTime = 0;
-    setCurrentTime(0);
     if (!ended) return;
     if (trackChanges) rearmPendingRef.current = true;
     else rearmMediaSession(audio, rearmingRef);
@@ -215,8 +214,9 @@ export function useAudioPlayer(track, { repeatMode, onNaturalEnd } = {}) {
     const audio = audioRef.current;
     if (!audio) return;
     audio.currentTime = time;
-    setCurrentTime(time);
   }, []);
+
+  const getCurrentTime = useCallback(() => audioRef.current?.currentTime ?? 0, []);
 
   const setVolume = useCallback((v) => {
     const audio = audioRef.current;
@@ -226,5 +226,5 @@ export function useAudioPlayer(track, { repeatMode, onNaturalEnd } = {}) {
     saveSettings({ ...getSettings(), volume: v });
   }, []);
 
-  return { audioRef, isPlaying, currentTime, duration, volume, play, pause, togglePlay, stopAtEnd, seek, setVolume };
+  return { audioRef, isPlaying, getCurrentTime, duration, volume, play, pause, togglePlay, stopAtEnd, seek, setVolume };
 }
