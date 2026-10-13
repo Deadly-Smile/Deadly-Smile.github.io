@@ -1,10 +1,9 @@
 import { useRef, useState } from "react";
 import { parseBlob } from "music-metadata";
 import { putTrack } from "../db/db";
-import { isDuplicateUpload, stripExtension } from "../utils";
+import { isDuplicateUpload, stripExtension, isSupportedAudioFile, audioMimeFor, AUDIO_ACCEPT } from "../utils";
 import styles from "../MusicPlayer.module.css";
 
-const ACCEPTED_TYPES = ["audio/mpeg", "audio/wav", "audio/ogg"];
 const DURATION_LOAD_TIMEOUT_MS = 10000;
 
 function loadAudioDuration(file) {
@@ -25,7 +24,7 @@ function loadAudioDuration(file) {
     };
     const onError = () => {
       cleanup();
-      reject(new Error("Could not be read as audio"));
+      reject(new Error("This browser can't play this file's format"));
     };
     const timer = setTimeout(() => {
       cleanup();
@@ -63,7 +62,7 @@ export default function UploadButton({ existingTracks, onTrackAdded, onError }) 
     let tracksSoFar = existingTracks;
 
     for (const file of files) {
-      if (!ACCEPTED_TYPES.includes(file.type)) {
+      if (!isSupportedAudioFile(file)) {
         newRejections.push({ name: file.name, reason: "Unsupported file type" });
         continue;
       }
@@ -81,9 +80,12 @@ export default function UploadButton({ existingTracks, onTrackAdded, onError }) 
       }
 
       const tags = await extractTags(file);
+      const mime = audioMimeFor(file);
       const track = {
         id: crypto.randomUUID(),
-        fileBlob: file,
+        // Re-labelled when the browser gave no/odd type, so playback, the
+        // media notification and P2P sync all see a real audio MIME type.
+        fileBlob: mime === file.type ? file : new File([file], file.name, { type: mime }),
         fileName: file.name,
         title: tags.title || stripExtension(file.name),
         artist: tags.artist,
@@ -112,7 +114,7 @@ export default function UploadButton({ existingTracks, onTrackAdded, onError }) 
       <input
         ref={inputRef}
         type="file"
-        accept={ACCEPTED_TYPES.join(",")}
+        accept={AUDIO_ACCEPT}
         multiple
         style={{ display: "none" }}
         onChange={(e) => {

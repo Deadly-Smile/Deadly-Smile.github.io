@@ -2,18 +2,57 @@
 // Pure state-machine: no React, no DOM, no timers. `Poker.jsx` drives this by
 // calling startHand()/applyAction()/advanceStreet() and re-rendering from the
 // state it gets back.
-import { evaluateBest, compareHandResults, describeHand } from "./handEvaluator";
+import { evaluateBest, compareHandResults, describeHand } from "./handEvaluator.js";
+import { randomIdentity } from "./identity.js";
 
 export const SUITS = ["s", "h", "d", "c"];
-export const STARTING_STACK = 1000;
-export const SMALL_BLIND = 10;
-export const BIG_BLIND = 20;
-
-const BOT_NAMES = ["Ava", "Bo", "Cleo", "Dex", "Ellie"];
 export const MIN_SEATS = 2;
 export const MAX_SEATS = 6;
 
+// Table settings chosen in the setup screen. Stored on the state itself
+// (state.config) so guests receive them with every broadcast. A re-buy tops a
+// busted human back up to `startingStack`; `maxRebuys: null` means unlimited.
+export const DEFAULT_CONFIG = { startingStack: 1000, smallBlind: 10, bigBlind: 20, rebuyEnabled: true, maxRebuys: 2 };
+export const STACK_PRESETS = [500, 1000, 2000, 5000, 10000];
+export const BLIND_PRESETS = [[5, 10], [10, 20], [25, 50], [50, 100], [100, 200]];
+export const REBUY_LIMITS = [0, 1, 2, 3, null];
+
+// Older saved tables (and anything off the wire) may lack fields — always
+// read settings through this rather than state.config directly.
+export function getConfig(state) {
+  return { ...DEFAULT_CONFIG, ...(state?.config ?? {}) };
+}
+
+export function normalizeConfig(config) {
+  const c = { ...DEFAULT_CONFIG, ...(config ?? {}) };
+  const posInt = (v, fallback) => (Number.isFinite(v) && v > 0 ? Math.floor(v) : fallback);
+  const bigBlind = posInt(c.bigBlind, DEFAULT_CONFIG.bigBlind);
+  return {
+    startingStack: Math.max(posInt(c.startingStack, DEFAULT_CONFIG.startingStack), bigBlind * 2),
+    smallBlind: Math.min(posInt(c.smallBlind, DEFAULT_CONFIG.smallBlind), bigBlind),
+    bigBlind,
+    rebuyEnabled: !!c.rebuyEnabled,
+    maxRebuys: c.maxRebuys == null ? null : Math.max(0, Math.floor(c.maxRebuys)),
+  };
+}
+
+// One-line summary for the setup screens, e.g. "$1000 buy-in · blinds $10/$20 · 2 re-buys".
+export function describeConfig(config) {
+  const c = normalizeConfig(config);
+  const rebuys = !c.rebuyEnabled ? "no re-buys" : c.maxRebuys == null ? "unlimited re-buys" : `${c.maxRebuys} re-buy${c.maxRebuys === 1 ? "" : "s"}`;
+  return `$${c.startingStack} buy-in · blinds $${c.smallBlind}/$${c.bigBlind} · ${rebuys}`;
+}
+
 function randomPersonality() { return { looseness: 0.25 + Math.random() * 0.5, aggression: 0.25 + Math.random() * 0.5 }; }
+
+function makePlayer(id, { name, avatar }, isHuman, stack) {
+  return {
+    id, name, avatar, isHuman, stack, rebuys: 0,
+    // Fixed per-bot flavor so the table doesn't feel like five copies of one bot.
+    personality: randomPersonality(),
+    folded: false, allIn: false, inHand: false, holeCards: [], streetBet: 0, totalContribution: 0, hasActed: false,
+  };
+}
 
 function makeDeck() {
   const deck = [];
@@ -30,21 +69,34 @@ function shuffle(arr) {
   return a;
 }
 
-export function createInitialState(seatCount = MAX_SEATS) {
+// `me` is seat 0's { name, avatar }; bots get random identities that don't
+// clash with it or each other.
+export function createInitialState(seatCount = MAX_SEATS, config = DEFAULT_CONFIG, me = null) {
   const n = Math.min(MAX_SEATS, Math.max(MIN_SEATS, seatCount));
-  const players = [
-    { id: 0, name: "You", isHuman: true, stack: STARTING_STACK, personality: randomPersonality() },
-    // Fixed per-bot flavor so the table doesn't feel like five copies of one bot.
-    ...BOT_NAMES.slice(0, n - 1).map((name, i) => ({ id: i + 1, name, isHuman: false, stack: STARTING_STACK, personality: randomPersonality() })),
-  ];
+  const cfg = normalizeConfig(config);
+  const host = { name: me?.name || "You", avatar: me?.avatar || "🙂" };
+  const players = [makePlayer(0, host, true, cfg.startingStack)];
+  for (let i = 1; i < n; i++) players.push(makePlayer(i, randomIdentity(players), false, cfg.startingStack));
   return {
-    players: players.map(p => ({ ...p, folded: false, allIn: false, inHand: false, holeCards: [], streetBet: 0, totalContribution: 0, hasActed: false })),
+    config: cfg,
+    players,
     board: [], deck: [],
     street: "waiting", // waiting | preflop | flop | turn | river | showdown
-    pot: 0, currentBet: 0, minRaise: BIG_BLIND,
+    pot: 0, currentBet: 0, minRaise: cfg.bigBlind,
     actingIndex: -1, dealerIndex: -1,
     handNumber: 0, log: [], result: null,
   };
+}
+
+// Lobby-only (state.handNumber === 0): swaps in new table settings and resets
+// every seat's stack to the new starting stack.
+export function applyConfig(prev, config) {
+  const state = structuredClone(prev);
+  if (state.handNumber !== 0) return state;
+  state.config = normalizeConfig(config);
+  state.minRaise = state.config.bigBlind;
+  for (const p of state.players) p.stack = state.config.startingStack;
+  return state;
 }
 
 // Lobby-only seat editing (state.handNumber === 0 / street "waiting") — adds
@@ -53,12 +105,7 @@ export function createInitialState(seatCount = MAX_SEATS) {
 export function addAiSeat(prev) {
   const state = structuredClone(prev);
   if (state.players.length >= MAX_SEATS) return state;
-  const usedNames = new Set(state.players.map(p => p.name));
-  const name = BOT_NAMES.find(n => !usedNames.has(n)) || `Bot ${state.players.length}`;
-  state.players.push({
-    id: state.players.length, name, isHuman: false, stack: STARTING_STACK, personality: randomPersonality(),
-    folded: false, allIn: false, inHand: false, holeCards: [], streetBet: 0, totalContribution: 0, hasActed: false,
-  });
+  state.players.push(makePlayer(state.players.length, randomIdentity(state.players), false, getConfig(state).startingStack));
   return state;
 }
 
@@ -150,11 +197,12 @@ export function startHand(prev) {
   const sbIndex = heads_up ? state.dealerIndex : nextSeat(state.players, state.dealerIndex);
   const bbIndex = nextSeat(state.players, sbIndex);
   const sb = state.players[sbIndex], bb = state.players[bbIndex];
-  const sbPosted = postChips(sb, SMALL_BLIND);
-  const bbPosted = postChips(bb, BIG_BLIND);
+  const { smallBlind, bigBlind } = getConfig(state);
+  const sbPosted = postChips(sb, smallBlind);
+  const bbPosted = postChips(bb, bigBlind);
   state.pot = sbPosted + bbPosted;
   state.currentBet = bb.streetBet; // handles a short-stacked all-in blind correctly
-  state.minRaise = BIG_BLIND;
+  state.minRaise = bigBlind;
   log(state, `Hand #${state.handNumber} — ${sb.name} posts SB $${sbPosted}, ${bb.name} posts BB $${bbPosted}.`);
 
   state.actingIndex = heads_up ? sbIndex : nextSeat(state.players, bbIndex);
@@ -166,7 +214,10 @@ function legalActions(state, player) {
   const toCall = state.currentBet - player.streetBet;
   const actions = ["fold"];
   if (toCall <= 0) actions.push("check"); else actions.push("call");
-  if (player.stack > toCall) actions.push(state.currentBet === 0 ? "bet" : "raise");
+  // Betting into a table where everyone else is already all-in can't win any
+  // more chips — it would just be returned as an uncalled side pot.
+  const othersCanRespond = contestedPlayers(state).some(p => p.id !== player.id);
+  if (player.stack > toCall && othersCanRespond) actions.push(state.currentBet === 0 ? "bet" : "raise");
   return actions;
 }
 export { legalActions };
@@ -181,6 +232,8 @@ export function applyAction(prev, playerId, type, amount = 0) {
   if (idx !== state.actingIndex) return state; // not this player's turn — ignore
 
   const toCall = state.currentBet - player.streetBet;
+
+  if ((type === "bet" || type === "raise") && !legalActions(state, player).includes(type)) return state;
 
   if (type === "fold") {
     player.folded = true;
@@ -204,7 +257,7 @@ export function applyAction(prev, playerId, type, amount = 0) {
     const raiseSize = player.streetBet + increment - state.currentBet;
     // Below the table minimum and not an all-in — reject rather than silently
     // clamp, so the UI can only ever produce legal actions.
-    if (!isAllIn && type === "bet" && increment < BIG_BLIND) return state;
+    if (!isAllIn && type === "bet" && increment < getConfig(state).bigBlind) return state;
     if (!isAllIn && type === "raise" && raiseSize < state.minRaise) return state;
 
     const posted = postChips(player, increment);
@@ -256,7 +309,46 @@ export function forceFoldPlayer(prev, playerId) {
 export function isBettingRoundOver(state) {
   const contested = contestedPlayers(state);
   if (contested.length === 0) return true; // everyone left is all-in
+  // Only one player still has chips and everyone else in the hand is all-in:
+  // once they've matched the bet there's nobody left to bet against, so the
+  // board just runs out instead of prompting them to check alone each street.
+  if (contested.length === 1 && activePlayers(state).length > 1) {
+    return contested[0].streetBet >= state.currentBet;
+  }
   return contested.every(p => p.hasActed && p.streetBet === state.currentBet);
+}
+
+// The table is decided once a hand has finished and at most one seat has
+// chips left. Checked only between hands: mid all-in run-out every stack can
+// read 0 before the pot is awarded.
+export function isTableDecided(state) {
+  return state.street === "handOver" && state.handNumber > 0 && playersRemaining(state) <= 1;
+}
+
+// Re-buys: a busted human can top back up to the starting stack, between
+// hands or while sitting out — never while still all-in in a live hand.
+export function rebuysLeft(state, player) {
+  const cfg = getConfig(state);
+  if (!cfg.rebuyEnabled) return 0;
+  return cfg.maxRebuys == null ? Infinity : Math.max(0, cfg.maxRebuys - (player.rebuys ?? 0));
+}
+
+export function canRebuy(state, player) {
+  if (!player || !player.isHuman || player.stack > 0) return false;
+  const live = state.street !== "waiting" && state.street !== "handOver";
+  if (live && player.inHand && !player.folded) return false;
+  return rebuysLeft(state, player) > 0;
+}
+
+export function rebuy(prev, playerId) {
+  const state = structuredClone(prev);
+  const player = state.players.find(p => p.id === playerId);
+  if (!canRebuy(state, player)) return state;
+  const amount = getConfig(state).startingStack;
+  player.stack += amount;
+  player.rebuys = (player.rebuys ?? 0) + 1;
+  log(state, `${player.name} re-buys for $${amount}.`);
+  return state;
 }
 
 // If a fold left exactly one player standing, they win the pot uncontested —
@@ -291,7 +383,7 @@ export function advanceStreet(prev) {
     p.hasActed = false;
   }
   state.currentBet = 0;
-  state.minRaise = BIG_BLIND;
+  state.minRaise = getConfig(state).bigBlind;
   state.actingIndex = nextToAct(state.players, state.dealerIndex);
   log(state, `— ${state.street.toUpperCase()} — ${dealt.map(cardLabel).join(" ")}`);
   return finalizeIfHandOver(state);

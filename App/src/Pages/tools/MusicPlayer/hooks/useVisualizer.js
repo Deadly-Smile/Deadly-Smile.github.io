@@ -32,7 +32,7 @@ function getOrCreateGraph(audioEl) {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     const ctx = new AudioContextClass();
     const analyser = ctx.createAnalyser();
-    analyser.fftSize = 256;
+    analyser.fftSize = 512; // 256 bins — enough resolution for log-spaced bass bars
     graph = { ctx, analyser, source: null, connectedElement: null, stream: null, streamKey: null };
   }
   if (graph.connectedElement !== audioEl) {
@@ -78,19 +78,64 @@ export function closeAudioGraph() {
   }
 }
 
+// Colour runs blue (quiet / bar bottom) → cyan → green → yellow → red (loud /
+// bar top). The same stops drive the canvas gradient for bars and a 256-step
+// lookup table for the peak caps, so per-frame colour work is a table read.
+const COLOR_STOPS = [
+  [0, [37, 99, 235]],
+  [0.3, [6, 182, 212]],
+  [0.5, [34, 197, 94]],
+  [0.75, [234, 179, 8]],
+  [1, [239, 68, 68]],
+];
+
+function colorAt(t) {
+  for (let i = 1; i < COLOR_STOPS.length; i++) {
+    const [p1, c1] = COLOR_STOPS[i];
+    const [p0, c0] = COLOR_STOPS[i - 1];
+    if (t <= p1) {
+      const k = (t - p0) / (p1 - p0);
+      return `rgb(${c0.map((v, j) => Math.round(v + (c1[j] - v) * k)).join(",")})`;
+    }
+  }
+  return `rgb(${COLOR_STOPS.at(-1)[1].join(",")})`;
+}
+const PEAK_COLORS = Array.from({ length: 256 }, (_, v) => colorAt(v / 255));
+
+const FRAME_MS = 1000 / 30; // 30fps reads as smooth for bars, at a fraction of display-rate cost
+const PEAK_FALL_PER_FRAME = 3; // in 0..255 units
+const MAX_DPR = 2;
+
+// Log-spaced bars: each bar covers a geometric slice of the spectrum, so the
+// bass/mids that carry most music get most of the width instead of the
+// near-empty top octave. Returns [startBin, endBin) per bar.
+export function logBands(barCount, binCount, minBin = 1) {
+  const maxBin = Math.floor(binCount * 0.75); // above ~16kHz is mostly silent
+  const bands = [];
+  let prevEnd = minBin;
+  for (let i = 0; i < barCount; i++) {
+    const end = Math.max(prevEnd + 1, Math.round(minBin * Math.pow(maxBin / minBin, (i + 1) / barCount)));
+    bands.push([prevEnd, Math.min(end, binCount)]);
+    prevEnd = end;
+  }
+  return bands;
+}
+
 // `visible` gates the draw loop. In "element" mode the AudioContext must still
 // follow isPlaying while hidden: audio is routed through it, so leaving it
 // suspended would silence playback started from the mini-player. In "stream"
 // mode it only feeds the analyser, so it is suspended while hidden.
-export function useVisualizer(audioRef, canvasRef, isPlaying, visible = true) {
-  const rafRef = useRef(null);
+// `enabled: false` (visualizer switched off) behaves like hidden, and never
+// builds the audio graph at all if it doesn't exist yet — playback then stays
+// plain native <audio>.
+export function useVisualizer(audioRef, canvasRef, isPlaying, visible = true, enabled = true) {
+  const timerRef = useRef(null);
 
   useEffect(() => {
+    const active = visible && enabled;
     if (!isPlaying) {
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
+      clearInterval(timerRef.current);
+      timerRef.current = null;
       if (graph?.ctx.state === "running") {
         graph.ctx.suspend().catch(() => {});
       }
@@ -98,47 +143,94 @@ export function useVisualizer(audioRef, canvasRef, isPlaying, visible = true) {
     }
 
     const audio = audioRef.current;
-    const canvas = canvasRef.current;
-    if (!audio || !canvas) return;
+    if (!audio) return;
+    if (!active && !graph) return;
 
     // AudioContext creation is user-gesture-gated: this effect only runs once
     // isPlaying flips true, i.e. after a Play click, satisfying autoplay policy.
     const g = getOrCreateGraph(audio);
-    if (!visible && g.stream) {
+    if (!active && g.stream) {
       g.ctx.suspend().catch(() => {});
       return;
     }
     if (g.ctx.state === "suspended") g.ctx.resume().catch(() => {});
-    if (!visible) return;
+    const canvas = canvasRef.current;
+    if (!active || !canvas) return;
 
     const ctx2d = canvas.getContext("2d");
-    const bufferLength = g.analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-    const barColor = getComputedStyle(document.documentElement).getPropertyValue("--tk-accent").trim() || "#00ff88";
+    const binCount = g.analyser.frequencyBinCount;
+    const data = new Uint8Array(binCount);
+    let bands = [], peaks = new Float32Array(0), gradient = null, barW = 0, gap = 0;
 
+    // Backing store sized to the element's real pixels (sharp on HiDPI, no
+    // wasted pixels on small screens); bar layout follows the width.
+    const layout = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+      const cssW = canvas.clientWidth || 800, cssH = canvas.clientHeight || 90;
+      canvas.width = Math.round(cssW * dpr);
+      canvas.height = Math.round(cssH * dpr);
+      const barCount = Math.max(24, Math.min(72, Math.floor(cssW / 14)));
+      bands = logBands(barCount, binCount);
+      peaks = new Float32Array(barCount);
+      const slot = canvas.width / barCount;
+      gap = Math.max(1, Math.round(slot * 0.2));
+      barW = slot - gap;
+      gradient = ctx2d.createLinearGradient(0, canvas.height, 0, 0);
+      for (const [pos, c] of COLOR_STOPS) gradient.addColorStop(pos, `rgb(${c.join(",")})`);
+    };
+    layout();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(layout) : null;
+    ro?.observe(canvas);
+
+    // A fixed-rate timer rather than a requestAnimationFrame loop that skips
+    // frames: a pending rAF makes the browser run its whole frame pipeline at
+    // the display rate (60–144Hz) even on frames where nothing is drawn,
+    // which measured as most of the visualizer's CPU. A canvas drawn from a
+    // timer is composited on the next frame anyway. Timers are throttled in
+    // background tabs, like rAF.
+    let idle = false;
     const draw = () => {
-      rafRef.current = requestAnimationFrame(draw);
-      g.analyser.getByteFrequencyData(dataArray);
+      if (document.hidden) return;
+      g.analyser.getByteFrequencyData(data);
 
       const { width, height } = canvas;
-      ctx2d.clearRect(0, 0, width, height);
-      ctx2d.fillStyle = barColor;
+      let any = false;
+      for (let i = 0; i < peaks.length; i++) if (peaks[i] > 0) { any = true; break; }
+      if (!any) for (let i = 0; i < binCount; i++) if (data[i]) { any = true; break; }
+      if (!any) {
+        // Silence (gap between tracks, quiet intro): clear once, then skip.
+        if (!idle) ctx2d.clearRect(0, 0, width, height);
+        idle = true;
+        return;
+      }
+      idle = false;
 
-      const barWidth = width / bufferLength;
-      let x = 0;
-      for (let i = 0; i < bufferLength; i++) {
-        const barHeight = (dataArray[i] / 255) * height;
-        ctx2d.fillRect(x, height - barHeight, barWidth - 1, barHeight);
-        x += barWidth;
+      ctx2d.clearRect(0, 0, width, height);
+      ctx2d.fillStyle = gradient;
+      const capH = Math.max(2, Math.round(height / 45));
+      const levels = new Uint8Array(bands.length);
+      for (let i = 0; i < bands.length; i++) {
+        const [start, end] = bands[i];
+        let v = 0;
+        for (let b = start; b < end; b++) if (data[b] > v) v = data[b];
+        levels[i] = v;
+        const barH = (v / 255) * (height - capH);
+        ctx2d.fillRect(i * (barW + gap), height - barH, barW, barH);
+      }
+      for (let i = 0; i < bands.length; i++) {
+        peaks[i] = Math.max(levels[i], peaks[i] - PEAK_FALL_PER_FRAME);
+        if (peaks[i] < 1) { peaks[i] = 0; continue; }
+        const p = peaks[i] | 0;
+        ctx2d.fillStyle = PEAK_COLORS[p];
+        ctx2d.fillRect(i * (barW + gap), height - capH - (p / 255) * (height - capH), barW, capH);
       }
     };
-    draw();
+    timerRef.current = setInterval(draw, FRAME_MS);
 
     return () => {
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
+      ro?.disconnect();
+      clearInterval(timerRef.current);
+      timerRef.current = null;
     };
-  }, [isPlaying, visible, audioRef, canvasRef]);
+  }, [isPlaying, visible, enabled, audioRef, canvasRef]);
 }

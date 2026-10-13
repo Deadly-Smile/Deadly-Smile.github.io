@@ -32,6 +32,16 @@
   overflow: hidden;
 }
 
+.visualizerWrap {
+  cursor: pointer;
+}
+
+.visualizerOff {
+  color: var(--tk-text-dim);
+  font-size: 0.75rem;
+  padding: 0.35rem 0.5rem;
+}
+
 .visualizerCanvas {
   width: 100%;
   max-width: 100%;

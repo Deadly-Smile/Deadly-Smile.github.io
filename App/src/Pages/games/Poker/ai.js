@@ -1,8 +1,8 @@
 // ─── Bot decision logic ──────────────────────────────────────────────────────
 // Each bot has fixed `looseness`/`aggression` knobs (engine.createInitialState)
 // so the table doesn't feel like five clones.
-import { evaluateBest, compareHandResults } from "./handEvaluator";
-import { legalActions, BIG_BLIND, SUITS } from "./engine";
+import { evaluateBest, compareHandResults } from "./handEvaluator.js";
+import { legalActions, getConfig, SUITS } from "./engine.js";
 
 const FULL_DECK = SUITS.flatMap(suit => Array.from({ length: 13 }, (_, i) => ({ rank: i + 2, suit })));
 const cardKey = c => `${c.rank}${c.suit}`;
@@ -77,9 +77,10 @@ export function decideAction(state, player) {
 
   if (wantsToRaise || bluffs) {
     const type = legal.includes("bet") ? "bet" : "raise";
-    const potSize = Math.max(state.pot, BIG_BLIND);
+    const { bigBlind } = getConfig(state);
+    const potSize = Math.max(state.pot, bigBlind);
     const sizeFrac = 0.4 + equity * 0.5 + Math.random() * 0.2; // bigger bets backed by more equity
-    const minTarget = type === "bet" ? BIG_BLIND : state.currentBet + state.minRaise;
+    const minTarget = type === "bet" ? bigBlind : state.currentBet + state.minRaise;
     const target = Math.max(minTarget, player.streetBet + Math.round(potSize * sizeFrac));
     const cappedTarget = Math.min(target, player.streetBet + player.stack);
     return { type, amount: cappedTarget };
