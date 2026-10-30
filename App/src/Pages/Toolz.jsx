@@ -19,7 +19,7 @@ import Magic8BallTool  from "./tools/Magic8BallTool";
 import CalculatorTool  from "./tools/CalculatorTool";
 import JWTTool         from "./tools/JWTTool";
 import TextExtractor   from "./tools/TextExtractor";
-import P2PChat         from "./tools/Chat";
+import P2PChat         from "./tools/Chat/Chat";
 import CronExpressionParser from "./tools/CronExpressionParser";
 import TimestampConverter from "./tools/TimestampConverter";
 import QRCodeGenerator from "./tools/QRCodeGenerator";
