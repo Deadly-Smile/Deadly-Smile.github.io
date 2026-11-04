@@ -24,7 +24,7 @@ function isTouchOnly() {
   return typeof window.matchMedia === "function" && !window.matchMedia("(any-pointer: fine)").matches;
 }
 
-const DEFAULT_SETTINGS = { sensitivity: 1, invertY: false, fov: 75 };
+const DEFAULT_SETTINGS = { sensitivity: 1, invertY: false, fov: 75, keyTurnSpeed: 2.5 };
 
 function Notice({ title, children }) {
   return (
@@ -44,7 +44,7 @@ const LEGEND = [
 ];
 
 const CONTROLS = [
-  ["W A S D", "move"], ["Mouse", "look"], ["Shift", "sprint"],
+  ["W A S D", "move"], ["Mouse / ← → ↑ ↓", "look"], ["Shift", "sprint"],
   ["Space", "jump"], ["C", "crouch"], ["Esc", "pause"],
 ];
 
@@ -250,6 +250,8 @@ export default function FPS() {
               onChange={v => updateSetting("sensitivity", v)} format={v => v.toFixed(2)} />
             <Slider label="Field of view" value={s.fov} min={60} max={100} step={1}
               onChange={v => updateSetting("fov", v)} format={v => `${v}°`} />
+            <Slider label="Arrow-key turn speed" value={s.keyTurnSpeed} min={0.5} max={6} step={0.1}
+              onChange={v => updateSetting("keyTurnSpeed", v)} format={v => `${Math.round(v * 180 / Math.PI)}°/s`} />
             <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
               <input type="checkbox" checked={s.invertY} onChange={e => updateSetting("invertY", e.target.checked)} />
               Invert mouse Y

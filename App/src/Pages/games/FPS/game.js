@@ -27,7 +27,10 @@ export function createGame({ map, input, getSettings, isPaused }) {
       const settings = getSettings();
       if (!paused) {
         const k = MOUSE_RADIANS_PER_PX * settings.sensitivity;
-        look(player, dx * k, (settings.invertY ? -dy : dy) * k);
+        const [kx, ky] = input.keyLook();
+        const turn = settings.keyTurnSpeed * Math.min(frameDt, 0.1);
+        const pitchSign = settings.invertY ? -1 : 1;
+        look(player, dx * k + kx * turn, (dy * k + ky * turn) * pitchSign);
       }
       if (camera.fov !== settings.fov) {
         camera.fov = settings.fov;

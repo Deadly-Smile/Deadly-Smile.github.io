@@ -1,12 +1,14 @@
 // ─── Keyboard + mouse (pointer lock) ────────────────────────────────────────
 // Keys are read by `code`, i.e. physical position, so WASD stays WASD on
-// AZERTY and other layouts. Nothing is read unless the pointer is locked to
-// the game, so typing elsewhere on the page never moves the player.
+// AZERTY and other layouts. The arrow keys look around (for touchpads, which
+// most laptops silence while a key is held, and keyboard-only play). Nothing
+// is read unless the pointer is locked to the game, so typing elsewhere on
+// the page never moves the player.
 const BINDINGS = {
-  forward: ["KeyW", "ArrowUp"],
-  back: ["KeyS", "ArrowDown"],
-  left: ["KeyA", "ArrowLeft"],
-  right: ["KeyD", "ArrowRight"],
+  forward: ["KeyW"],
+  back: ["KeyS"],
+  left: ["KeyA"],
+  right: ["KeyD"],
   sprint: ["ShiftLeft", "ShiftRight"],
   crouch: ["KeyC"],
 };
@@ -64,6 +66,14 @@ export function createInput(lockTarget, { onLockChange, onLockError } = {}) {
       };
       jumpQueued = false;
       return state;
+    },
+    // Arrow keys held: [turn, pitch], each -1/0/1 (right / down positive,
+    // matching mouse movement).
+    keyLook() {
+      return [
+        (down.has("ArrowRight") ? 1 : 0) - (down.has("ArrowLeft") ? 1 : 0),
+        (down.has("ArrowDown") ? 1 : 0) - (down.has("ArrowUp") ? 1 : 0),
+      ];
     },
     // Mouse movement (pixels) since the last call.
     takeLook() {
