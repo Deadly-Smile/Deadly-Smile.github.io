@@ -25,8 +25,8 @@ export function advance(accumulator, frameDt, step = STEP, maxSteps = MAX_STEPS_
   return { steps, accumulator: acc, alpha: acc / step };
 }
 
-// Drives `update(step)` at a fixed rate and `render(alpha)` once per animation
-// frame. Pauses itself while the tab is hidden and resets the clock on
+// Drives `update(step)` at a fixed rate and `render(alpha, frameDt)` once per
+// animation frame. Pauses itself while the tab is hidden and resets the clock on
 // return, so coming back doesn't count the hidden time as one huge frame.
 // `now`/`raf`/`caf`/`doc` are injectable for tests; the defaults are the browser's.
 export function createLoop({
@@ -43,11 +43,12 @@ export function createLoop({
 
   const frame = () => {
     const t = now();
-    const r = advance(acc, (t - last) / 1000, step);
+    const frameDt = (t - last) / 1000;
+    const r = advance(acc, frameDt, step);
     last = t;
     acc = r.accumulator;
     for (let i = 0; i < r.steps; i++) update(step);
-    render(r.alpha);
+    render(r.alpha, frameDt);
     rafId = raf(frame);
   };
 

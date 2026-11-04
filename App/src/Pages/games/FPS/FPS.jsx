@@ -5,6 +5,8 @@ import { buildNavGraph } from "./engine/nav.js";
 import { MAPS, getMap } from "./maps/index.js";
 import { createRenderer } from "./render/renderer.js";
 import { buildMapScene } from "./render/mapScene.js";
+import { createInput } from "./input.js";
+import { createGame } from "./game.js";
 
 // FPS game shell. This module (and three.js with it) is lazy-loaded from
 // Games.jsx, so nothing here is downloaded until the game is opened.
@@ -12,12 +14,17 @@ import { buildMapScene } from "./render/mapScene.js";
 // The game loop runs outside React: React only owns the mount point and the
 // overlays. Per-frame values (like the fps readout) are written straight to
 // DOM refs at a throttled rate instead of going through state.
+//
+// Phases: "menu" (map picker, orbiting preview) → "paused" ⇄ "playing".
+// Playing means the pointer is locked; losing the lock (Esc, alt-tab) pauses.
 
 // Pointer lock and WASD need a mouse and keyboard; a device whose only
 // pointer is coarse (phones, most tablets) can't play.
 function isTouchOnly() {
   return typeof window.matchMedia === "function" && !window.matchMedia("(any-pointer: fine)").matches;
 }
+
+const DEFAULT_SETTINGS = { sensitivity: 1, invertY: false, fov: 75 };
 
 function Notice({ title, children }) {
   return (
@@ -36,8 +43,12 @@ const LEGEND = [
   ["bg-cyan-400", "walkable"], ["bg-yellow-400", "cover"], ["bg-slate-500", "unreachable"],
 ];
 
-// Slow orbit around the map while there's no player to look through (FPS-3
-// replaces this with the first-person camera).
+const CONTROLS = [
+  ["W A S D", "move"], ["Mouse", "look"], ["Shift", "sprint"],
+  ["Space", "jump"], ["C", "crouch"], ["Esc", "pause"],
+];
+
+// Slow orbit around the map while in the menu.
 function createOrbit(map) {
   const size = Math.max(...map.size);
   let angle = 0.6;
@@ -50,18 +61,39 @@ function createOrbit(map) {
   };
 }
 
+function Slider({ label, value, min, max, step, onChange, format = (v) => v }) {
+  return (
+    <label className="block text-sm text-slate-300">
+      <div className="flex justify-between mb-1"><span>{label}</span><span className="font-mono text-slate-400">{format(value)}</span></div>
+      <input type="range" className="w-full" min={min} max={max} step={step} value={value}
+        onChange={e => onChange(Number(e.target.value))} />
+    </label>
+  );
+}
+
 export default function FPS() {
   const [touchOnly] = useState(isTouchOnly);
   const [error, setError] = useState(null);
   const [mapId, setMapId] = usePersistentState("game:fps:map", MAPS[0].id);
+  const [settings, setSettings] = usePersistentState("game:fps:settings", DEFAULT_SETTINGS);
   const [showDebug, setShowDebug] = useState(false);
+  const [phase, setPhase] = useState("menu");
+  const [lockFailed, setLockFailed] = useState(false);
+
   const mountRef = useRef(null);
   const fpsRef = useRef(null);
   const viewRef = useRef(null);      // renderer/scene/camera for the session
+  const inputRef = useRef(null);
   const worldRef = useRef(null);     // what the loop is currently driving
   const mapSceneRef = useRef(null);
+  const pausedRef = useRef(true);
+  pausedRef.current = phase !== "playing";
+  const settingsRef = useRef(settings);
+  settingsRef.current = { ...DEFAULT_SETTINGS, ...settings };
 
-  // Renderer + loop: created once per mount, survive map changes.
+  const inGame = phase !== "menu";
+
+  // Renderer + input + loop: created once per mount, survive map changes.
   useEffect(() => {
     if (touchOnly) return;
     let view;
@@ -73,12 +105,21 @@ export default function FPS() {
     }
     viewRef.current = view;
 
+    const input = createInput(mountRef.current, {
+      onLockChange: (locked) => {
+        if (locked) setLockFailed(false);
+        setPhase(p => (p === "menu" ? p : locked ? "playing" : "paused"));
+      },
+      onLockError: () => setLockFailed(true),
+    });
+    inputRef.current = input;
+
     let frames = 0;
     let lastReport = performance.now();
     const loop = createLoop({
       update: (dt) => worldRef.current?.update(dt),
-      render: () => {
-        worldRef.current?.placeCamera(view.camera);
+      render: (alpha, frameDt) => {
+        worldRef.current?.placeCamera(view.camera, alpha, frameDt);
         view.render();
         frames++;
         const now = performance.now();
@@ -93,29 +134,59 @@ export default function FPS() {
 
     return () => {
       loop.stop();
+      input.dispose();
+      inputRef.current = null;
       viewRef.current = null;
       view.dispose();
     };
   }, [touchOnly]);
 
-  // The map: rebuilt (and the old one disposed) whenever the selection changes.
+  // The map's meshes: rebuilt (and the old ones disposed) when the map changes.
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
     const map = getMap(mapId);
     const mapScene = buildMapScene(view.scene, map, buildNavGraph(map));
     mapSceneRef.current = mapScene;
-    worldRef.current = createOrbit(map);
     return () => {
-      worldRef.current = null;
       mapSceneRef.current = null;
       mapScene.dispose();
     };
   }, [mapId, touchOnly, error]);
 
+  // What the loop drives: an orbiting preview in the menu, the game otherwise.
+  useEffect(() => {
+    if (!viewRef.current) return;
+    const map = getMap(mapId);
+    worldRef.current = inGame
+      ? createGame({ map, input: inputRef.current, getSettings: () => settingsRef.current, isPaused: () => pausedRef.current })
+      : createOrbit(map);
+    if (!inGame) {
+      const cam = viewRef.current.camera;
+      cam.fov = DEFAULT_SETTINGS.fov;
+      cam.updateProjectionMatrix();
+    }
+    return () => { worldRef.current = null; };
+  }, [mapId, inGame, touchOnly, error]);
+
   useEffect(() => {
     mapSceneRef.current?.setDebug(showDebug);
   }, [showDebug, mapId]);
+
+  const play = () => {
+    setLockFailed(false);
+    setPhase("paused");          // becomes "playing" once the lock is granted
+    inputRef.current?.lock();
+  };
+  const resume = () => {
+    setLockFailed(false);
+    inputRef.current?.lock();
+  };
+  const quit = () => {
+    inputRef.current?.unlock();
+    setPhase("menu");
+  };
+  const updateSetting = (key, value) => setSettings(s => ({ ...DEFAULT_SETTINGS, ...s, [key]: value }));
 
   if (touchOnly) {
     return (
@@ -133,13 +204,13 @@ export default function FPS() {
   }
 
   const current = getMap(mapId);
+  const s = settingsRef.current;
   return (
-    <div className="relative h-full w-full overflow-hidden bg-slate-950">
+    <div className="relative h-full w-full overflow-hidden bg-slate-950 select-none">
       <div ref={mountRef} className="absolute inset-0" />
 
       <div className="pointer-events-none absolute top-4 right-4 text-right font-mono text-xs text-slate-300">
         <div ref={fpsRef}>– fps</div>
-        <div className="text-slate-500">map preview · controls coming next</div>
       </div>
 
       {showDebug && (
@@ -152,25 +223,73 @@ export default function FPS() {
         </div>
       )}
 
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 w-[min(46rem,calc(100%-2rem))] rounded-xl bg-slate-900/85 border border-slate-700 p-3 backdrop-blur">
-        <div className="flex flex-wrap gap-2">
-          {MAPS.map(m => (
-            <button
-              key={m.id}
-              onClick={() => setMapId(m.id)}
-              className={`flex-1 min-w-[9rem] text-left rounded-lg px-3 py-2 border transition-colors ${
-                m.id === current.id ? "border-indigo-400 bg-indigo-600/30 text-white" : "border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-500"}`}
-            >
-              <div className="font-semibold text-sm">{m.name}</div>
-              <div className="text-xs text-slate-400">{m.desc}</div>
+      {phase === "playing" && (
+        <>
+          <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+            <div className="w-1.5 h-1.5 rounded-full bg-white/90 ring-1 ring-black/60" />
+          </div>
+          <div className="pointer-events-none absolute bottom-4 left-4 font-mono text-[11px] text-white/50">
+            {CONTROLS.map(([k, v]) => `${k} ${v}`).join(" · ")}
+          </div>
+        </>
+      )}
+
+      {phase === "paused" && (
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60">
+          <div className="w-80 rounded-xl bg-slate-900 border border-slate-700 p-5 space-y-4">
+            <h2 className="text-xl font-bold text-white text-center">Paused</h2>
+            <button onClick={resume} className="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">
+              Resume
             </button>
-          ))}
+            {lockFailed && (
+              <p className="text-xs text-amber-300 text-center">
+                The browser needs a moment after Esc before it lets the game take the mouse again. Click Resume again.
+              </p>
+            )}
+            <Slider label="Mouse sensitivity" value={s.sensitivity} min={0.2} max={3} step={0.05}
+              onChange={v => updateSetting("sensitivity", v)} format={v => v.toFixed(2)} />
+            <Slider label="Field of view" value={s.fov} min={60} max={100} step={1}
+              onChange={v => updateSetting("fov", v)} format={v => `${v}°`} />
+            <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+              <input type="checkbox" checked={s.invertY} onChange={e => updateSetting("invertY", e.target.checked)} />
+              Invert mouse Y
+            </label>
+            <div className="text-[11px] text-slate-500 leading-relaxed">
+              {CONTROLS.map(([k, v]) => <div key={k} className="flex justify-between"><span className="font-mono">{k}</span><span>{v}</span></div>)}
+            </div>
+            <button onClick={quit} className="w-full py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200">
+              Quit to menu
+            </button>
+          </div>
         </div>
-        <label className="mt-2 flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
-          <input type="checkbox" checked={showDebug} onChange={e => setShowDebug(e.target.checked)} />
-          Show spawns &amp; nav grid
-        </label>
-      </div>
+      )}
+
+      {phase === "menu" && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 w-[min(46rem,calc(100%-2rem))] rounded-xl bg-slate-900/85 border border-slate-700 p-3 backdrop-blur">
+          <div className="flex flex-wrap gap-2">
+            {MAPS.map(m => (
+              <button
+                key={m.id}
+                onClick={() => setMapId(m.id)}
+                className={`flex-1 min-w-[9rem] text-left rounded-lg px-3 py-2 border transition-colors ${
+                  m.id === current.id ? "border-indigo-400 bg-indigo-600/30 text-white" : "border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-500"}`}
+              >
+                <div className="font-semibold text-sm">{m.name}</div>
+                <div className="text-xs text-slate-400">{m.desc}</div>
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
+              <input type="checkbox" checked={showDebug} onChange={e => setShowDebug(e.target.checked)} />
+              Show spawns &amp; nav grid
+            </label>
+            <button onClick={play} className="px-6 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">
+              Play {current.name}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
