@@ -78,3 +78,40 @@ export function groundHeightAt(x, z, boxes) {
   }
   return y;
 }
+
+// Ray against the map: its boxes plus the floor plane (y = 0). Returns
+// { t, point, normal, index } for the nearest hit (index -1 = the floor), or
+// null. `normal` is the face hit, for orienting bullet holes and bounces.
+export function raycastWorld(p0, p1, boxes) {
+  const best = raycastBoxes(p0, p1, boxes);
+  let index = best ? best.index : -1;
+  let t = best ? best.t : Infinity;
+  if (p1[1] < 0 && p0[1] >= 0) {
+    const tf = p0[1] / (p0[1] - p1[1]);
+    if (tf < t) {
+      t = tf;
+      index = -1;
+    }
+  }
+  if (t === Infinity) return null;
+  const point = [0, 1, 2].map(i => p0[i] + (p1[i] - p0[i]) * t);
+  const normal = index === -1 ? [0, 1, 0] : boxFaceNormal(point, boxes[index], p0);
+  return { t, point, normal, index };
+}
+
+// Which face of `box` the point lies on: the axis where the point is closest
+// to a face, pointing back toward `from` (the ray origin).
+export function boxFaceNormal(point, box, from) {
+  let axis = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < 3; i++) {
+    const d = Math.min(Math.abs(point[i] - box.min[i]), Math.abs(point[i] - box.max[i]));
+    if (d < bestDist) {
+      bestDist = d;
+      axis = i;
+    }
+  }
+  const normal = [0, 0, 0];
+  normal[axis] = from[axis] < point[axis] ? -1 : 1;
+  return normal;
+}

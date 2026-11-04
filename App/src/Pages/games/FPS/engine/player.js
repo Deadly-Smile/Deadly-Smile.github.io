@@ -12,6 +12,7 @@ import { bodyBox, boxesOverlap, overlapsAny, BODY_RADIUS, BODY_HEIGHT, STEP_HEIG
 export const WALK_SPEED = 4.5;
 export const SPRINT_SPEED = 6.8;
 export const CROUCH_SPEED = 2.2;
+export const ADS_SPEED = 2.8;     // aiming down sights: slower, no sprint
 export const GROUND_ACCEL = 50;   // m/s² toward the wanted velocity
 export const AIR_ACCEL = 10;
 export const GRAVITY = 22;
@@ -124,7 +125,7 @@ function snapDown(p, boxes) {
   p.onGround = true;
 }
 
-// One simulation tick. `input`: { forward, back, left, right, jump, sprint, crouch }.
+// One simulation tick. `input`: { forward, back, left, right, jump, sprint, crouch, ads }.
 export function stepPlayer(p, input, dt, boxes) {
   p.prev[0] = p.pos[0];
   p.prev[1] = p.pos[1];
@@ -140,7 +141,9 @@ export function stepPlayer(p, input, dt, boxes) {
   }
 
   const [wx, wz] = wishDir(input, p.yaw);
-  const speed = p.crouched ? CROUCH_SPEED : input.sprint && input.forward ? SPRINT_SPEED : WALK_SPEED;
+  const speed = p.crouched ? CROUCH_SPEED
+    : input.ads ? ADS_SPEED
+      : input.sprint && input.forward ? SPRINT_SPEED : WALK_SPEED;
   const dvx = wx * speed - p.vel[0];
   const dvz = wz * speed - p.vel[2];
   const dv = Math.hypot(dvx, dvz);

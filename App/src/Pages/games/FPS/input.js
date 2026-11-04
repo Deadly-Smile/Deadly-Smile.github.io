@@ -22,19 +22,55 @@ export function createInput(lockTarget, { onLockChange, onLockError } = {}) {
   let jumpQueued = false; // a key press, not a held key: one jump per press
   let dx = 0;
   let dy = 0;
+  // Weapon controls: mouse buttons are held; the rest are presses queued
+  // until the next tick reads them.
+  let fireHeld = false;
+  // A click can start and end between two ticks (touchpad taps often do);
+  // remember the press so the next tick still sees the trigger pulled.
+  let fireQueued = false;
+  let adsHeld = false;
+  let slotQueued = null;
+  let reloadQueued = false;
+  let lastQueued = false;
+  let scroll = 0;
 
   const isLocked = () => document.pointerLockElement === lockTarget;
   const reset = () => {
     down.clear();
     jumpQueued = false;
     dx = dy = 0;
+    fireHeld = fireQueued = adsHeld = reloadQueued = lastQueued = false;
+    slotQueued = null;
+    scroll = 0;
   };
 
   const onKeyDown = (e) => {
     if (!isLocked()) return;
     if (PREVENT.has(e.code)) e.preventDefault();
-    if (e.code === "Space" && !e.repeat) jumpQueued = true;
+    if (!e.repeat) {
+      if (e.code === "Space") jumpQueued = true;
+      else if (e.code === "KeyR") reloadQueued = true;
+      else if (e.code === "KeyQ") lastQueued = true;
+      else if (/^Digit[1-4]$/.test(e.code)) slotQueued = Number(e.code[5]) - 1;
+    }
     down.add(e.code);
+  };
+  const onMouseDown = (e) => {
+    if (!isLocked()) return;
+    if (e.button === 0) fireHeld = fireQueued = true;
+    else if (e.button === 2) adsHeld = true;
+  };
+  const onMouseUp = (e) => {
+    if (e.button === 0) fireHeld = false;
+    else if (e.button === 2) adsHeld = false;
+  };
+  const onWheel = (e) => {
+    if (!isLocked()) return;
+    e.preventDefault();
+    if (e.deltaY) scroll = Math.sign(e.deltaY);
+  };
+  const onContextMenu = (e) => {
+    if (isLocked()) e.preventDefault();
   };
   const onKeyUp = (e) => down.delete(e.code);
   const onMouseMove = (e) => {
@@ -53,6 +89,10 @@ export function createInput(lockTarget, { onLockChange, onLockError } = {}) {
   window.addEventListener("keyup", onKeyUp);
   window.addEventListener("blur", reset);
   document.addEventListener("mousemove", onMouseMove);
+  document.addEventListener("mousedown", onMouseDown);
+  document.addEventListener("mouseup", onMouseUp);
+  document.addEventListener("wheel", onWheel, { passive: false });
+  document.addEventListener("contextmenu", onContextMenu);
   document.addEventListener("pointerlockchange", onChange);
   document.addEventListener("pointerlockerror", onError);
 
@@ -65,6 +105,14 @@ export function createInput(lockTarget, { onLockChange, onLockError } = {}) {
         sprint: held("sprint"), crouch: held("crouch"), jump: jumpQueued,
       };
       jumpQueued = false;
+      return state;
+    },
+    // Weapon controls for one tick (consumes queued presses).
+    readWeapon() {
+      const state = { fire: fireHeld || fireQueued, ads: adsHeld, reload: reloadQueued, slot: slotQueued, scroll, lastWeapon: lastQueued };
+      fireQueued = reloadQueued = lastQueued = false;
+      slotQueued = null;
+      scroll = 0;
       return state;
     },
     // Arrow keys held: [turn, pitch], each -1/0/1 (right / down positive,
@@ -104,6 +152,10 @@ export function createInput(lockTarget, { onLockChange, onLockError } = {}) {
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", reset);
       document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.removeEventListener("wheel", onWheel);
+      document.removeEventListener("contextmenu", onContextMenu);
       document.removeEventListener("pointerlockchange", onChange);
       document.removeEventListener("pointerlockerror", onError);
       if (isLocked()) document.exitPointerLock();

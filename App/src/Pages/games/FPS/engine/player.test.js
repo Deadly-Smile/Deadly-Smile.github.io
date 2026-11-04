@@ -3,7 +3,7 @@
 //   node src/Pages/games/FPS/engine/player.test.js
 import {
   createPlayer, stepPlayer, wishDir, look,
-  WALK_SPEED, SPRINT_SPEED, CROUCH_SPEED, CROUCH_HEIGHT, MAX_PITCH,
+  WALK_SPEED, SPRINT_SPEED, CROUCH_SPEED, ADS_SPEED, CROUCH_HEIGHT, MAX_PITCH,
 } from "./player.js";
 import { BODY_HEIGHT, bodyBox, overlapsAny } from "./geometry.js";
 import { MAPS } from "../maps/index.js";
@@ -55,6 +55,7 @@ check("walk speed", round(hSpeed(run(at(0, 0, 0), keys({ forward: true }), 1))),
 check("diagonal isn't faster", round(hSpeed(run(at(0, 0, 0), keys({ forward: true, right: true }), 1))), WALK_SPEED);
 check("sprint speed", round(hSpeed(run(at(0, 0, 0), keys({ forward: true, sprint: true }), 1))), SPRINT_SPEED);
 check("no sprinting backwards", round(hSpeed(run(at(0, 0, 0), keys({ back: true, sprint: true }), 1))), WALK_SPEED);
+check("aiming slows and blocks sprint", round(hSpeed(run(at(0, 0, 0), keys({ forward: true, sprint: true, ads: true }), 1))), ADS_SPEED);
 check("crouch speed", round(hSpeed(run(at(0, 0, 0), keys({ forward: true, crouch: true }), 1))), CROUCH_SPEED);
 {
   const p = run(at(0, 0, 0), keys({ forward: true }), 1);

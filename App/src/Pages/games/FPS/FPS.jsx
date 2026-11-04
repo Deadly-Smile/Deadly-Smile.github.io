@@ -7,6 +7,7 @@ import { createRenderer } from "./render/renderer.js";
 import { buildMapScene } from "./render/mapScene.js";
 import { createInput } from "./input.js";
 import { createGame } from "./game.js";
+import { WEAPONS, PRIMARIES, DEFAULT_PRIMARY } from "./engine/weapons.js";
 
 // FPS game shell. This module (and three.js with it) is lazy-loaded from
 // Games.jsx, so nothing here is downloaded until the game is opened.
@@ -45,16 +46,21 @@ const LEGEND = [
 
 const CONTROLS = [
   ["W A S D", "move"], ["Mouse / ← → ↑ ↓", "look"], ["Shift", "sprint"],
-  ["Space", "jump"], ["C", "crouch"], ["Esc", "pause"],
+  ["Space", "jump"], ["C", "crouch"], ["Left click", "fire"], ["Right click", "aim"],
+  ["R", "reload"], ["1–4 / wheel", "weapons"], ["Q", "last weapon"], ["Esc", "pause"],
 ];
 
+// How often the React HUD is refreshed from the game (it only re-renders
+// when something it shows actually changed).
+const HUD_INTERVAL_MS = 100;
+
 // Slow orbit around the map while in the menu.
-function createOrbit(map) {
+function createOrbit(map, camera) {
   const size = Math.max(...map.size);
   let angle = 0.6;
   return {
     update(dt) { angle += dt * 0.08; },
-    placeCamera(camera) {
+    render() {
       camera.position.set(Math.cos(angle) * size * 0.62, size * 0.38, Math.sin(angle) * size * 0.62);
       camera.lookAt(0, 0, 0);
     },
@@ -71,6 +77,41 @@ function Slider({ label, value, min, max, step, onChange, format = (v) => v }) {
   );
 }
 
+// Black mask with a round window and fine crosshair: the sniper scope.
+function ScopeOverlay() {
+  return (
+    <div className="pointer-events-none absolute inset-0"
+      style={{ background: "radial-gradient(circle at center, transparent 0, transparent 34vmin, #000 34.3vmin)" }}>
+      <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-black/80" />
+      <div className="absolute top-1/2 left-0 right-0 h-px -translate-y-1/2 bg-black/80" />
+    </div>
+  );
+}
+
+function WeaponHud({ hud }) {
+  return (
+    <div className="pointer-events-none absolute bottom-4 right-4 text-right font-mono text-white drop-shadow">
+      <div className="flex justify-end gap-1 mb-2">
+        {hud.slots.map(s => (
+          <div key={s.key} className={`px-2 py-0.5 rounded text-[11px] border ${
+            s.active ? "border-white/80 bg-white/20" : "border-white/20 bg-black/30 text-white/60"} ${s.empty ? "opacity-40" : ""}`}>
+            <span className="text-white/50 mr-1">{s.key}</span>{s.name}{s.count != null && ` ×${s.count}`}
+          </div>
+        ))}
+      </div>
+      <div className="text-sm text-white/80">{hud.weapon}</div>
+      {hud.kind === "gun" && (
+        <div className="text-3xl font-bold leading-tight">
+          <span className={hud.mag === 0 ? "text-red-400" : ""}>{hud.mag}</span>
+          <span className="text-lg text-white/60"> / {hud.reserve}</span>
+        </div>
+      )}
+      {hud.kind === "throw" && <div className="text-3xl font-bold leading-tight">×{hud.mag}</div>}
+      {hud.reloading && <div className="text-xs text-amber-300 animate-pulse">reloading…</div>}
+    </div>
+  );
+}
+
 export default function FPS() {
   const [touchOnly] = useState(isTouchOnly);
   const [error, setError] = useState(null);
@@ -79,6 +120,8 @@ export default function FPS() {
   const [showDebug, setShowDebug] = useState(false);
   const [phase, setPhase] = useState("menu");
   const [lockFailed, setLockFailed] = useState(false);
+  const [primary, setPrimary] = usePersistentState("game:fps:primary", DEFAULT_PRIMARY);
+  const [hud, setHud] = useState(null);
 
   const mountRef = useRef(null);
   const fpsRef = useRef(null);
@@ -116,13 +159,24 @@ export default function FPS() {
 
     let frames = 0;
     let lastReport = performance.now();
+    let lastHud = 0;
+    let lastHudJson = "";
     const loop = createLoop({
       update: (dt) => worldRef.current?.update(dt),
       render: (alpha, frameDt) => {
-        worldRef.current?.placeCamera(view.camera, alpha, frameDt);
+        worldRef.current?.render(alpha, frameDt);
         view.render();
         frames++;
         const now = performance.now();
+        if (now - lastHud >= HUD_INTERVAL_MS) {
+          lastHud = now;
+          const next = worldRef.current?.hud?.() ?? null;
+          const json = JSON.stringify(next);
+          if (json !== lastHudJson) {
+            lastHudJson = json;
+            setHud(next);
+          }
+        }
         if (now - lastReport >= 500) {
           if (fpsRef.current) fpsRef.current.textContent = `${Math.round(frames * 1000 / (now - lastReport))} fps`;
           frames = 0;
@@ -156,18 +210,25 @@ export default function FPS() {
 
   // What the loop drives: an orbiting preview in the menu, the game otherwise.
   useEffect(() => {
-    if (!viewRef.current) return;
+    const view = viewRef.current;
+    if (!view) return;
     const map = getMap(mapId);
-    worldRef.current = inGame
-      ? createGame({ map, input: inputRef.current, getSettings: () => settingsRef.current, isPaused: () => pausedRef.current })
-      : createOrbit(map);
+    const world = inGame
+      ? createGame({
+        map, view, primary, input: inputRef.current,
+        getSettings: () => settingsRef.current, isPaused: () => pausedRef.current,
+      })
+      : createOrbit(map, view.camera);
+    worldRef.current = world;
     if (!inGame) {
-      const cam = viewRef.current.camera;
-      cam.fov = DEFAULT_SETTINGS.fov;
-      cam.updateProjectionMatrix();
+      view.camera.fov = DEFAULT_SETTINGS.fov;
+      view.camera.updateProjectionMatrix();
     }
-    return () => { worldRef.current = null; };
-  }, [mapId, inGame, touchOnly, error]);
+    return () => {
+      worldRef.current = null;
+      world.dispose?.();
+    };
+  }, [mapId, inGame, primary, touchOnly, error]);
 
   useEffect(() => {
     mapSceneRef.current?.setDebug(showDebug);
@@ -223,16 +284,15 @@ export default function FPS() {
         </div>
       )}
 
-      {phase === "playing" && (
-        <>
-          <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-            <div className="w-1.5 h-1.5 rounded-full bg-white/90 ring-1 ring-black/60" />
-          </div>
-          <div className="pointer-events-none absolute bottom-4 left-4 font-mono text-[11px] text-white/50">
-            {CONTROLS.map(([k, v]) => `${k} ${v}`).join(" · ")}
-          </div>
-        </>
+      {inGame && hud?.scoped && <ScopeOverlay />}
+
+      {phase === "playing" && hud && !hud.ads && (
+        <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+          <div className="w-1.5 h-1.5 rounded-full bg-white/90 ring-1 ring-black/60" />
+        </div>
       )}
+
+      {inGame && hud && <WeaponHud hud={hud} />}
 
       {phase === "paused" && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60">
@@ -278,6 +338,16 @@ export default function FPS() {
               >
                 <div className="font-semibold text-sm">{m.name}</div>
                 <div className="text-xs text-slate-400">{m.desc}</div>
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-slate-400 mr-1">Primary</span>
+            {PRIMARIES.map(id => (
+              <button key={id} onClick={() => setPrimary(id)}
+                className={`px-3 py-1 rounded-md text-xs border transition-colors ${
+                  id === primary ? "border-indigo-400 bg-indigo-600/30 text-white" : "border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-500"}`}>
+                {WEAPONS[id].name}
               </button>
             ))}
           </div>
