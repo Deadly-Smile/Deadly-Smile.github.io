@@ -88,6 +88,62 @@ function ScopeOverlay() {
   );
 }
 
+// One-shot fade used by the hurt flash and hit markers; each new event
+// remounts the element (new React key), which restarts the animation.
+const FADE_KEYFRAMES = "@keyframes fps-fade { from { opacity: 1 } to { opacity: 0 } }";
+const fade = (ms) => ({ animation: `fps-fade ${ms}ms ease-out forwards` });
+
+function HealthHud({ hp }) {
+  const color = hp > 60 ? "bg-emerald-400" : hp > 30 ? "bg-amber-400" : "bg-red-500";
+  return (
+    <div className="pointer-events-none absolute bottom-4 left-4 w-48 font-mono text-white drop-shadow">
+      <div className="flex items-baseline gap-2">
+        <span className="text-xs text-white/60">HP</span>
+        <span className="text-3xl font-bold">{hp}</span>
+      </div>
+      <div className="h-2 rounded bg-black/40 overflow-hidden">
+        <div className={`h-full ${color} transition-all duration-150`} style={{ width: `${hp}%` }} />
+      </div>
+    </div>
+  );
+}
+
+// Red edges for a moment whenever the player takes damage.
+function HurtFlash() {
+  return (
+    <div className="pointer-events-none absolute inset-0" style={{
+      ...fade(450),
+      background: "radial-gradient(ellipse at center, transparent 45%, rgba(220,38,38,0.55) 100%)",
+    }} />
+  );
+}
+
+// An "X" around the crosshair: white for a hit, yellow for a headshot, red for a kill.
+function HitMarker({ kind }) {
+  const color = kind === "kill" ? "#ef4444" : kind === "head" ? "#facc15" : "#ffffff";
+  const arm = (rot) => (
+    <div className="absolute left-1/2 top-1/2 w-[2px] h-2.5" style={{
+      background: color, transform: `translate(-50%, -50%) rotate(${rot}deg) translateY(-9px)`,
+    }} />
+  );
+  return (
+    <div className="pointer-events-none absolute left-1/2 top-1/2 w-0 h-0" style={fade(kind === "kill" ? 500 : 250)}>
+      {arm(45)}{arm(135)}{arm(225)}{arm(315)}
+    </div>
+  );
+}
+
+function DeathOverlay({ respawnIn }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-red-950/40">
+      <div className="text-center">
+        <div className="text-4xl font-bold text-white drop-shadow">You died</div>
+        <div className="mt-2 text-sm text-white/70">Respawning in {respawnIn}…</div>
+      </div>
+    </div>
+  );
+}
+
 function WeaponHud({ hud }) {
   return (
     <div className="pointer-events-none absolute bottom-4 right-4 text-right font-mono text-white drop-shadow">
@@ -268,6 +324,7 @@ export default function FPS() {
   const s = settingsRef.current;
   return (
     <div className="relative h-full w-full overflow-hidden bg-slate-950 select-none">
+      <style>{FADE_KEYFRAMES}</style>
       <div ref={mountRef} className="absolute inset-0" />
 
       <div className="pointer-events-none absolute top-4 right-4 text-right font-mono text-xs text-slate-300">
@@ -286,13 +343,17 @@ export default function FPS() {
 
       {inGame && hud?.scoped && <ScopeOverlay />}
 
-      {phase === "playing" && hud && !hud.ads && (
+      {phase === "playing" && hud && !hud.ads && !hud.dead && (
         <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
           <div className="w-1.5 h-1.5 rounded-full bg-white/90 ring-1 ring-black/60" />
         </div>
       )}
 
-      {inGame && hud && <WeaponHud hud={hud} />}
+      {inGame && hud && hud.marker.n > 0 && <HitMarker key={hud.marker.n} kind={hud.marker.kind} />}
+      {inGame && hud && hud.hurt > 0 && <HurtFlash key={hud.hurt} />}
+      {inGame && hud && !hud.dead && <WeaponHud hud={hud} />}
+      {inGame && hud && !hud.dead && <HealthHud hp={hud.hp} />}
+      {inGame && hud?.dead && <DeathOverlay respawnIn={hud.respawnIn} />}
 
       {phase === "paused" && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60">

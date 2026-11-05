@@ -96,6 +96,7 @@ App/src/Pages/games/FPS/
 - Death, then respawn (single-player: the wave run ends; respawn is used in multiplayer).
 - Grenade: thrown with an arc, bounces off boxes, fuse timer, damage within a radius that falls off with distance, blocked by walls (line-of-sight check).
 - Knife: short-range melee, quick attack, high damage from behind (optional).
+- Also done here: **training dummies** (static targets at walkable spots in view of the start, respawning after death) so damage can be played with before FPS-6's bots; they share the actor/health/hitbox code bots will use. The **hit marker** (white hit / yellow headshot / red kill) and the hurt flash moved up from FPS-8, since damage can't be judged without them.
 
 **Acceptance:** `damage.test.js` covers falloff, headshots, regen timing, the grenade radius and line-of-sight blocking.
 

@@ -107,8 +107,8 @@ export function createViewModel(vmScene) {
     melee() { swing = 1; swingKind = "melee"; },
     thrown() { swing = 1; swingKind = "throw"; },
 
-    // state: { weapon, ads, scoped, reloadFrac (0..1, 1 = not reloading),
-    //          drawFrac (0..1, 1 = drawn), speedFrac, onGround }
+    // state: { weapon, ads, scoped, hidden, reloadFrac (0..1, 1 = not
+    //          reloading), drawFrac (0..1, 1 = drawn), speedFrac, onGround }
     update(dt, s) {
       if (current !== s.weapon) {
         if (current) models[current].visible = false;
@@ -159,8 +159,8 @@ export function createViewModel(vmScene) {
 
       root.position.copy(pos);
       root.rotation.set(rx, ry, rz);
-      // The scope covers the screen; hide the gun behind it.
-      root.visible = !s.scoped;
+      // The scope covers the screen; hide the gun behind it (and when dead).
+      root.visible = !s.scoped && !s.hidden;
 
       flash.visible = flashTime > 0 && !!def.muzzle && current !== "knife" && current !== "grenade";
       if (flash.visible) flash.position.set(...def.muzzle);

@@ -16,6 +16,7 @@ const PUFF_LIFE = 0.18;
 const BLAST_LIFE = 0.4;
 
 const Z = new THREE.Vector3(0, 0, 1);
+const DUST = 0xd6c7a8;
 
 export function createEffects(scene) {
   const root = new THREE.Group();
@@ -42,7 +43,7 @@ export function createEffects(scene) {
   // Impact puffs: small spheres that grow and fade.
   const puffGeo = new THREE.SphereGeometry(0.06, 6, 4);
   const puffs = Array.from({ length: MAX_PUFFS }, () => {
-    const mesh = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ color: 0xd6c7a8, transparent: true, depthWrite: false }));
+    const mesh = new THREE.Mesh(puffGeo, new THREE.MeshBasicMaterial({ color: DUST, transparent: true, depthWrite: false }));
     mesh.visible = false;
     root.add(mesh);
     return { mesh, life: 0 };
@@ -83,9 +84,11 @@ export function createEffects(scene) {
       decals.instanceMatrix.needsUpdate = true;
       nextDecal = (nextDecal + 1) % MAX_DECALS;
     },
-    impact(point) {
+    // Dust by default; hits on bodies pass a colour.
+    impact(point, color = DUST) {
       const p = puffs[nextPuff];
       nextPuff = (nextPuff + 1) % MAX_PUFFS;
+      p.mesh.material.color.setHex(color);
       p.mesh.position.set(...point);
       p.life = PUFF_LIFE;
       p.mesh.visible = true;
