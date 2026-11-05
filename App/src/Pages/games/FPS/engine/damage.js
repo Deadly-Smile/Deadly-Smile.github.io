@@ -11,10 +11,15 @@ export const MAX_HP = 100;
 export const REGEN_DELAY = 5;    // s without taking damage before healing starts
 export const REGEN_RATE = 15;    // hp/s while healing
 
-// Hitboxes are a little narrower than the collision body (0.4) so shots that
-// graze the edge of someone's outline don't count.
-export const HITBOX_RADIUS = 0.33;
-export const HEAD_SIZE = 0.3;
+// Hitboxes follow the character models (realistic proportions): the head
+// from the neck — HEAD_FROM of the body's height — to the top, the body
+// below it. Both are a little narrower than what's drawn, so shots that
+// graze an outline (helmet edge, elbows) don't count.
+export const HITBOX_RADIUS = 0.26;
+export const HEAD_FROM = 0.81;
+export const HEAD_RADIUS = 0.13;
+// Where bots aim: the middle of the chest.
+export const TORSO_CENTRE = 0.62;
 
 export function createHealth(max = MAX_HP) {
   return { hp: max, max, sinceHit: Infinity, dead: false };
@@ -47,15 +52,17 @@ export function revive(h) {
   h.sinceHit = Infinity;
 }
 
-// Head on top, body below it, both centred on the actor's feet position.
+// Head on top, body below it, both centred on the actor's feet position and
+// scaled with its current height (a crouched head sits lower).
 export function hitboxes(actor) {
   const [x, y, z] = actor.pos;
   const top = y + actor.height;
+  const neck = y + actor.height * HEAD_FROM;
   const r = HITBOX_RADIUS;
-  const hr = HEAD_SIZE / 2;
+  const hr = HEAD_RADIUS;
   return [
-    { part: "head", box: { min: [x - hr, top - HEAD_SIZE, z - hr], max: [x + hr, top, z + hr] } },
-    { part: "body", box: { min: [x - r, y, z - r], max: [x + r, top - HEAD_SIZE, z + r] } },
+    { part: "head", box: { min: [x - hr, neck, z - hr], max: [x + hr, top, z + hr] } },
+    { part: "body", box: { min: [x - r, y, z - r], max: [x + r, neck, z + r] } },
   ];
 }
 

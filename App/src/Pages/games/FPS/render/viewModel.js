@@ -8,9 +8,14 @@
 // aiming down sights. Nothing here affects where shots go.
 import * as THREE from "three";
 import { disposeObject } from "./renderer.js";
+import { cloneProp } from "./models.js";
 
 const HIP = new THREE.Vector3(0.17, -0.16, -0.62);
 const ADS = new THREE.Vector3(0, -0.085, -0.5);
+// The kit's gun models (models.js) are normalised with their top edge — the
+// sight line — at y = 0, so aiming just brings that line under the centre.
+const MODEL_HIP = new THREE.Vector3(0.16, -0.13, -0.42);
+const MODEL_ADS = new THREE.Vector3(0, -0.03, -0.36);
 
 const COLORS = { dark: 0x3a414b, metal: 0x6b7480, wood: 0x8a5530, olive: 0x5f6e38, blade: 0xd8dee8, grip: 0x24292f };
 
@@ -58,20 +63,32 @@ const MODELS = {
 // Exponential approach of `current` toward `target` at `rate` per second.
 const approach = (current, target, rate, dt) => current + (target - current) * Math.min(1, rate * dt);
 
-export function createViewModel(vmScene) {
+// `assets` is the loaded models.js set, or null for the box guns.
+export function createViewModel(vmScene, assets = null) {
   const root = new THREE.Group();
   vmScene.add(root);
 
   const box = new THREE.BoxGeometry(1, 1, 1);
   const mats = Object.fromEntries(Object.entries(COLORS).map(([k, c]) => [k, new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, metalness: 0.3 })]));
   const models = {};
+  const defs = {};
+  const shared = []; // model clones: their geometry/materials belong to the loaded set
   for (const [id, def] of Object.entries(MODELS)) {
-    const g = new THREE.Group();
-    for (const [w, h, d, x, y, z, col] of def.parts) {
-      const m = new THREE.Mesh(box, mats[col]);
-      m.scale.set(w, h, d);
-      m.position.set(x, y, z);
-      g.add(m);
+    const template = assets && (id === "grenade" ? assets.grenade : assets.guns[id]);
+    let g;
+    if (template) {
+      g = cloneProp(template);
+      defs[id] = { muzzle: g.userData.muzzle.toArray(), sight: 0, hip: MODEL_HIP, ads: MODEL_ADS };
+      shared.push(g);
+    } else {
+      g = new THREE.Group();
+      for (const [w, h, d, x, y, z, col] of def.parts) {
+        const m = new THREE.Mesh(box, mats[col]);
+        m.scale.set(w, h, d);
+        m.position.set(x, y, z);
+        g.add(m);
+      }
+      defs[id] = { ...def, hip: HIP, ads: ADS };
     }
     g.visible = false;
     root.add(g);
@@ -115,7 +132,7 @@ export function createViewModel(vmScene) {
         current = s.weapon;
         models[current].visible = true;
       }
-      const def = MODELS[current];
+      const def = defs[current];
       const model = models[current];
 
       adsBlend = approach(adsBlend, s.ads ? 1 : 0, 14, dt);
@@ -127,7 +144,7 @@ export function createViewModel(vmScene) {
       bobPhase += dt * (6 + 5 * moving);
       const bobAmp = moving * (1 - adsBlend * 0.85);
 
-      const pos = HIP.clone().lerp(ADS, adsBlend);
+      const pos = def.hip.clone().lerp(def.ads, adsBlend);
       // Line the sight up with the screen centre when aiming.
       pos.y -= def.sight * adsBlend * 0.4;
       pos.x += Math.sin(bobPhase) * 0.012 * bobAmp;
@@ -167,6 +184,7 @@ export function createViewModel(vmScene) {
     },
     dispose() {
       vmScene.remove(root);
+      for (const g of shared) root.remove(g);
       disposeObject(root);
     },
   };

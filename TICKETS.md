@@ -138,6 +138,35 @@ App/src/Pages/games/FPS/
 
 **Acceptance:** a complete single-player run plays from menu to game over without errors.
 
+#### FPS-8a: Character and weapon models (added 2026-11-06)
+Replace the box figures and box guns with open-source models. This overrides the original "no downloaded assets" decision, at the user's request.
+
+- **Assets** (all from Poly Pizza; authors and licences in `App/public/fps/models/CREDITS.md`):
+  - **SWAT** by Quaternius (CC0) for the bots.
+  - **Soldier** by Quaternius (**CC BY 3.0**, so attribution is required; it's shown in the game's menu) for the player and the player's team.
+  - Both share one 62-bone rig and its clips: idle with a gun, idle shooting, walk, run, run backwards, run left/right, run shooting, hit reaction and death. There is no crouch clip.
+  - Weapons, all CC0: Quaternius's realistic low-poly Assault Rifle, Submachine Gun, Sniper Rifle, Shotgun, Pistol and Knife, plus CreativeTrio's Hand Grenade.
+  - A first attempt with Quaternius's cartoon *Toon Shooter* kit was dropped as "too goofy". The user also asked about CS:GO models; that was declined, because those are Valve's copyrighted assets, the site is served publicly, and the game shouldn't look like CS:GO.
+- **Pipeline:**
+  - `App/scripts/fps-models/optimize.mjs` keeps and renames the clips the game uses, then prunes, dedups and meshopt-compresses each model. The README lists exact download links.
+  - Total size is about 1.3 MB (characters about 0.55 MB each, weapons 12–55 KB each).
+  - The models are fetched only when the game is opened.
+- **Loading:**
+  - GLTFLoader + MeshoptDecoder.
+  - Play shows "Loading models…" until the models are ready.
+  - If loading fails, the game falls back to the box figures and guns.
+- **Characters (`render/characters.js`):**
+  - Each actor gets a skeleton clone with its own animation mixer and materials.
+  - The pure `engine/anim.js` (tested) chooses the clip: strafes by movement direction relative to facing, Run_Shoot for armed running, Walk, Idle or Idle_Shoot, HitReact, and Death played once.
+  - **Crouching** has no clip: the body is lowered and each leg solves two-bone IK so the knees bend forward over the planted feet. The rig's feet hang off the root. Crouch-walking uses the walk clip.
+  - **The weapon follows the hand's position but points along the aim.** Some clips are unarmed and swing the wrists. In swinging-arm clips it's held at the chest instead.
+  - The chest leans with the aim pitch, and the gun is hidden on death.
+- **Hitboxes follow the realistic proportions:** the head runs from 81% of the height to the top and is 0.26 m wide; the body is 0.52 m wide. Bots aim at mid-chest.
+- **First person, drops and grenades:** first-person weapons, dropped guns and grenades (in hand, thrown and dropped) use the weapon models, levelled with barrel forward and the sight line at the top edge.
+- **Death camera:** pulls out to a third-person view of the player's own Soldier body.
+
+**Acceptance:** bots and the dead player's body are animated soldiers holding the right gun; first-person, dropped and thrown weapons use the models; hitboxes match the visible head and body; the game still works (box fallback) if the models fail to load; the models download only when the game opens; the CC BY attribution is shown.
+
 ---
 
 ## Phase 2: Multiplayer (Team Deathmatch)

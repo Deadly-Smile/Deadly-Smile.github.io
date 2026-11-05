@@ -9,6 +9,7 @@ import { createInput } from "./input.js";
 import { createGame } from "./game.js";
 import { WEAPONS, PRIMARIES, DEFAULT_PRIMARY } from "./engine/weapons.js";
 import { DIFFICULTIES } from "./engine/ai.js";
+import { loadModels } from "./render/models.js";
 
 // FPS game shell. This module (and three.js with it) is lazy-loaded from
 // Games.jsx, so nothing here is downloaded until the game is opened.
@@ -225,6 +226,9 @@ export default function FPS() {
   const [result, setResult] = useState(null);     // last run's stats, on the game-over screen
   const [session, setSession] = useState(0);      // bumped by Play / Play again: a fresh run
   const [best, setBest] = usePersistentState("game:fps:best", {}); // map id → { score, wave, kills }
+  // Character/weapon models: undefined while loading, null if they failed
+  // (the game then uses its box figures), the loaded set otherwise.
+  const [models, setModels] = useState(undefined);
 
   const mountRef = useRef(null);
   const fpsRef = useRef(null);
@@ -251,6 +255,15 @@ export default function FPS() {
   };
 
   const inGame = phase !== "menu";
+
+  // Start fetching the models as soon as the game is opened (they're only
+  // ever downloaded here, never by the rest of the site).
+  useEffect(() => {
+    if (touchOnly) return;
+    let live = true;
+    loadModels().then(m => { if (live) setModels(m); });
+    return () => { live = false; };
+  }, [touchOnly]);
 
   // Renderer + input + loop: created once per mount, survive map changes.
   useEffect(() => {
@@ -331,7 +344,7 @@ export default function FPS() {
     const map = getMap(mapId);
     const world = inGame
       ? createGame({
-        map, view, primary, difficulty, input: inputRef.current,
+        map, view, primary, difficulty, models: models ?? null, input: inputRef.current,
         getSettings: () => settingsRef.current, isPaused: () => pausedRef.current,
         onGameOver: (stats) => gameOverRef.current(stats),
       })
@@ -345,7 +358,7 @@ export default function FPS() {
       worldRef.current = null;
       world.dispose?.();
     };
-  }, [mapId, inGame, primary, difficulty, session, touchOnly, error]);
+  }, [mapId, inGame, primary, difficulty, session, models, touchOnly, error]);
 
   useEffect(() => {
     mapSceneRef.current?.setDebug(showDebug);
@@ -515,9 +528,14 @@ export default function FPS() {
                 Best {best[current.id].score} · wave {best[current.id].wave}
               </span>
             )}
-            <button onClick={play} className="px-6 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">
-              Play {current.name}
+            <button onClick={play} disabled={models === undefined}
+              className="px-6 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:text-slate-400 text-white font-semibold">
+              {models === undefined ? "Loading models…" : `Play ${current.name}`}
             </button>
+          </div>
+          {/* Required attribution for the CC BY model (details in public/fps/models/CREDITS.md). */}
+          <div className="mt-2 text-[10px] text-slate-500">
+            Models: &ldquo;Soldier&rdquo; by Quaternius (CC BY 3.0, modified); SWAT and weapons by Quaternius and CreativeTrio (CC0) — via Poly Pizza.
           </div>
         </div>
       )}

@@ -3,7 +3,7 @@
 //   node src/Pages/games/FPS/engine/damage.test.js
 import {
   createHealth, applyDamage, stepHealth, revive, hitboxes, raycastActors,
-  shotDamage, meleeDamage, explosionDamage, REGEN_DELAY, REGEN_RATE, MAX_HP,
+  shotDamage, meleeDamage, explosionDamage, REGEN_DELAY, REGEN_RATE, MAX_HP, HEAD_FROM, HITBOX_RADIUS,
 } from "./damage.js";
 import { WEAPONS, damageAt } from "./weapons.js";
 import { box } from "../maps/build.js";
@@ -58,8 +58,8 @@ const tick = (h, seconds) => { for (let i = 0; i < Math.round(seconds / STEP); i
 {
   const a = actor("a", 0, -10);
   const [head, body] = hitboxes(a);
-  check("head sits on top", [head.part, round(head.box.min[1]), head.box.max[1]], ["head", 1.5, 1.8]);
-  check("body below the head", [body.part, body.box.min[1], round(body.box.max[1])], ["body", 0, 1.5]);
+  check("head from the neck to the top", [head.part, round(head.box.min[1]), head.box.max[1]], ["head", round(1.8 * HEAD_FROM), 1.8]);
+  check("body below the head", [body.part, body.box.min[1], round(body.box.max[1])], ["body", 0, round(1.8 * HEAD_FROM)]);
 
   const eye = [0, 1.6, 0];
   check("ray at head height hits the head", raycastActors(eye, [0, 1.6, -100], [a]).part, "head");
@@ -104,8 +104,8 @@ const tick = (h, seconds) => { for (let i = 0; i < Math.round(seconds / STEP); i
   const hits = (actors, boxes = []) => explosionDamage(center, R, MAX, actors, boxes).map(h => [h.actor.id, round(h.amount, 1)]);
 
   check("standing on it: nearly full damage", hits([actor("on", 0, 0)]), [["on", MAX]]);
-  // Body edge is 0.33 m nearer than the actor's centre.
-  check("falls off linearly with distance", hits([actor("mid", 3.33, 0)]), [["mid", round(MAX * (1 - 3 / R), 1)]]);
+  // The body's edge is HITBOX_RADIUS nearer than the actor's centre.
+  check("falls off linearly with distance", hits([actor("mid", 3 + HITBOX_RADIUS, 0)]), [["mid", round(MAX * (1 - 3 / R), 1)]]);
   check("outside the radius: nothing", hits([actor("far", 6.5, 0)]), []);
   check("several at once", hits([actor("a", 1.33, 0), actor("b", 0, -4.33)]).length, 2);
 

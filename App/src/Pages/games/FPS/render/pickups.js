@@ -1,16 +1,19 @@
 // ─── Drops on the ground ────────────────────────────────────────────────────
-// Ammo packs (green crates), guns (a box model per weapon) and grenades,
-// hovering and turning slowly so they stand out, blinking in their last
-// seconds before they disappear. Meshes are made when a drop appears and
-// freed when it's taken or expires; geometries/materials are shared.
+// Ammo packs (green crates), guns and grenades (the kit models when they're
+// loaded, simple boxes/spheres otherwise), hovering and turning slowly so
+// they stand out, blinking in their last seconds before they disappear.
+// Meshes are made when a drop appears and freed when it's taken or expires;
+// geometries/materials are shared.
 import * as THREE from "three";
 import { disposeObject } from "./renderer.js";
+import { cloneProp } from "./models.js";
 
 const BLINK_FROM = 5; // s left when blinking starts
 
 const GUN_SIZE = { smg: [0.08, 0.12, 0.45], rifle: [0.08, 0.12, 0.75], sniper: [0.08, 0.12, 0.95], shotgun: [0.09, 0.11, 0.8] };
 
-export function createPickupMeshes(scene) {
+// `assets` is the loaded models.js set, or null.
+export function createPickupMeshes(scene, assets = null) {
   const root = new THREE.Group();
   scene.add(root);
   const unit = new THREE.BoxGeometry(1, 1, 1);
@@ -22,9 +25,17 @@ export function createPickupMeshes(scene) {
     grenade: new THREE.MeshStandardMaterial({ color: 0x5f6e38, roughness: 0.7, emissive: 0x365314, emissiveIntensity: 0.5 }),
   };
   const meshes = new Map(); // drop id → Object3D
+  const shared = new Set(); // model clones (geometry/materials owned by the loaded set)
   let time = 0;
 
   const build = (d) => {
+    const template = assets && (d.kind === "gun" ? assets.guns[d.weapon] : d.kind === "grenade" ? assets.grenade : null);
+    if (template) {
+      const m = cloneProp(template);
+      shared.add(m);
+      root.add(m);
+      return m;
+    }
     const g = new THREE.Group();
     const add = (mat, w, h, dd, x = 0, y = 0, z = 0) => {
       const m = new THREE.Mesh(unit, mat);
@@ -61,11 +72,13 @@ export function createPickupMeshes(scene) {
       for (const [id, g] of meshes) {
         if (seen.has(id)) continue;
         root.remove(g);
+        shared.delete(g);
         meshes.delete(id);
       }
     },
     dispose() {
       scene.remove(root);
+      for (const g of shared) root.remove(g);
       disposeObject(root);
       Object.values(mats).forEach(m => m.dispose());
       unit.dispose();

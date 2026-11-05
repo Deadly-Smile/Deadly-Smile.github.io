@@ -18,6 +18,7 @@ import { rollDrops, stepDrops, nearDrop, takeDrop, swapPrimary } from "./engine/
 import { createViewModel } from "./render/viewModel.js";
 import { createEffects } from "./render/effects.js";
 import { createActorMeshes } from "./render/actors.js";
+import { createCharacters } from "./render/characters.js";
 import { createPickupMeshes } from "./render/pickups.js";
 
 // Radians of turn per pixel of mouse movement at sensitivity 1.
@@ -29,6 +30,9 @@ const CORPSE_TIME = 3;         // s a dead bot stays before it's removed
 const HIT_FLASH = 0.15;
 const MUZZLE_FLASH = 0.06;
 const MESSAGE_TIME = 1.5;
+// Death camera: pulls out to look at the player's body from behind and above.
+const DEATH_CAM_DISTANCE = 3.2;
+const DEATH_CAM_HEIGHT = 1.9;
 const BLOOD = 0xb91c1c;
 
 // Unit vector for a view direction (yaw 0 = -z, pitch up positive).
@@ -37,7 +41,9 @@ function direction(yaw, pitch) {
   return [-Math.sin(yaw) * c, Math.sin(pitch), -Math.cos(yaw) * c];
 }
 
-export function createGame({ map, view, input, getSettings, isPaused, primary, difficulty = "normal", onGameOver }) {
+// `models` is the loaded character/weapon set (render/models.js), or null to
+// use the box figures and guns.
+export function createGame({ map, view, input, getSettings, isPaused, primary, difficulty = "normal", onGameOver, models = null }) {
   const nav = buildNavGraph(map);
   const start = map.playerSpawns[Math.floor(Math.random() * map.playerSpawns.length)];
   // The player is an actor too (id/team/health), so bots and grenades can hurt them.
@@ -51,10 +57,14 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
   const botWorld = { boxes: map.boxes, nav, actors: [] };
   const actors = () => [player, ...bots];
 
-  const viewModel = createViewModel(view.vmScene);
-  const fx = createEffects(view.scene);
-  const botMeshes = createActorMeshes(view.scene);
-  const pickupMeshes = createPickupMeshes(view.scene);
+  const viewModel = createViewModel(view.vmScene, models);
+  const fx = createEffects(view.scene, models);
+  const weaponOf = (a) => activeWeapon(a === player ? loadout : a.loadout).id;
+  const figures = models
+    ? createCharacters(view.scene, models, { modelFor: a => (a.team === "enemy" ? "enemy" : "soldier"), weaponOf })
+    : createActorMeshes(view.scene);
+  const pickupMeshes = createPickupMeshes(view.scene, models);
+  let deathCam = 0; // 0 → 1 as the camera pulls out to the body
   let eye = eyeHeight(player);
   let zoom = 1; // current FOV multiplier (eases toward the weapon's ADS zoom)
   let overIn = null; // s until the results screen, once dead
@@ -102,11 +112,13 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
   function hurt(actor, amount, { attacker = null, part = "body" } = {}) {
     const { dealt, killed } = applyDamage(actor.health, amount);
     if (!dealt) return;
+    actor.hitAgo = 0;
     if (actor === player) {
       hurtCount++;
       if (killed) {
         overIn = GAME_OVER_DELAY;
         loadout.ads = false;
+        player.deadFor = 0;
       }
       return;
     }
@@ -223,6 +235,8 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
     for (const bot of bots) {
       bot.hitFlash = Math.max(0, bot.hitFlash - dt);
       bot.flash = Math.max(0, bot.flash - dt);
+      bot.firedAgo = (bot.firedAgo ?? Infinity) + dt;
+      bot.hitAgo = (bot.hitAgo ?? Infinity) + dt;
       if (bot.health.dead) {
         bot.deadFor += dt;
         bot.prev = [...bot.pos];
@@ -236,6 +250,7 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
         if (e.type !== "shot") continue;
         shoot(bot, e, eyeOf(bot), { scale: bot.skill.damage, maxHeadshot: BOT_HEADSHOT_CAP });
         bot.flash = MUZZLE_FLASH;
+        bot.firedAgo = 0;
       }
       stepHealth(bot.health, dt);
     }
@@ -250,6 +265,30 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
       else if (e.type === "spawn") spawnBot(e.config);
       else if (e.type === "cleared") banner = { n: banner.n + 1, text: `Wave ${e.wave} cleared` };
     }
+  }
+
+  // Third-person view of the player's body, eased in from first person and
+  // slowly circling; pulled in where a wall would be in the way.
+  function placeDeathCamera(frameDt) {
+    const { camera } = view;
+    deathCam = Math.min(1, deathCam + frameDt * 1.2);
+    const k = deathCam * deathCam * (3 - 2 * deathCam);
+    const target = [player.pos[0], player.pos[1] + 0.8, player.pos[2]];
+    const yaw = player.yaw + player.deadFor * 0.35;
+    const want = [
+      target[0] + Math.sin(yaw) * DEATH_CAM_DISTANCE,
+      player.pos[1] + DEATH_CAM_HEIGHT,
+      target[2] + Math.cos(yaw) * DEATH_CAM_DISTANCE,
+    ];
+    const wall = raycastWorld(target, want, map.boxes);
+    const reach = wall ? Math.max(0, wall.t - 0.1) : 1;
+    const out = target.map((v, i) => v + (want[i] - v) * reach);
+    camera.position.set(
+      camera.position.x + (out[0] - camera.position.x) * k,
+      camera.position.y + (out[1] - camera.position.y) * k,
+      camera.position.z + (out[2] - camera.position.z) * k,
+    );
+    camera.lookAt(target[0], target[1], target[2]);
   }
 
   const runStats = () => ({
@@ -268,6 +307,7 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
         // Drain input so nothing queued is left over.
         input.read();
         input.readWeapon();
+        player.deadFor += dt;
         if (overIn !== null) {
           overIn -= dt;
           if (overIn <= 0) {
@@ -346,7 +386,8 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
         prev[1] + (pos[1] - prev[1]) * t + eye,
         prev[2] + (pos[2] - prev[2]) * t,
       );
-      camera.rotation.set(player.pitch, player.yaw, dead ? 0.5 : 0, "YXZ");
+      camera.rotation.set(player.pitch, player.yaw, dead && !models ? 0.5 : 0, "YXZ");
+      if (dead && models) placeDeathCamera(frameDt);
 
       const dtFx = paused ? 0 : frameDt;
       viewModel.update(dtFx, {
@@ -359,7 +400,8 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
         speedFrac: Math.hypot(player.vel[0], player.vel[2]) / WALK_SPEED,
         onGround: player.onGround,
       });
-      botMeshes.update(bots, paused ? 1 : alpha, dtFx);
+      // The player's own body is only drawn once dead (for the death camera).
+      figures.update(dead && models ? [...bots, player] : bots, paused ? 1 : alpha, dtFx);
       pickupMeshes.update(drops, dtFx);
       fx.setGrenades(grenades, t);
       fx.update(dtFx);
@@ -404,7 +446,7 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
     dispose() {
       viewModel.dispose();
       fx.dispose();
-      botMeshes.dispose();
+      figures.dispose();
       pickupMeshes.dispose();
     },
   };

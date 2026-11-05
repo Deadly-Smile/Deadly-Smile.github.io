@@ -7,6 +7,7 @@
 // intensity: adding/removing lights would recompile every material's shader.
 import * as THREE from "three";
 import { disposeObject } from "./renderer.js";
+import { cloneProp } from "./models.js";
 
 const MAX_DECALS = 128;
 const MAX_PUFFS = 24;
@@ -20,7 +21,8 @@ const BLAST_LIFE = 0.4;
 const Z = new THREE.Vector3(0, 0, 1);
 const DUST = 0xd6c7a8;
 
-export function createEffects(scene) {
+// `assets` is the loaded models.js set (for the grenade model), or null.
+export function createEffects(scene, assets = null) {
   const root = new THREE.Group();
   scene.add(root);
   const m4 = new THREE.Matrix4();
@@ -54,8 +56,20 @@ export function createEffects(scene) {
 
   const grenadeGeo = new THREE.SphereGeometry(0.08, 10, 8);
   const grenadeMat = new THREE.MeshStandardMaterial({ color: 0x4d5a2c, roughness: 0.7 });
+  const shared = []; // model clones: geometry/materials belong to the loaded set
   const grenadeMeshes = Array.from({ length: MAX_GRENADES }, () => {
-    const mesh = new THREE.Mesh(grenadeGeo, grenadeMat);
+    let mesh;
+    if (assets) {
+      // The model's origin is at its top; hang it so it's centred on the
+      // simulated position.
+      mesh = new THREE.Group();
+      const g = cloneProp(assets.grenade);
+      g.position.y = g.userData.height / 2;
+      mesh.add(g);
+      shared.push(g);
+    } else {
+      mesh = new THREE.Mesh(grenadeGeo, grenadeMat);
+    }
     mesh.visible = false;
     root.add(mesh);
     return mesh;
@@ -182,6 +196,7 @@ export function createEffects(scene) {
     },
     dispose() {
       scene.remove(root);
+      for (const g of shared) g.parent.remove(g);
       disposeObject(root);
     },
   };

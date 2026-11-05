@@ -1,4 +1,5 @@
-// ─── Bot figures ────────────────────────────────────────────────────────────
+// ─── Box figures (fallback) ─────────────────────────────────────────────────
+// Used when the character models (characters.js) couldn't be loaded.
 // Box figures sized to their hitboxes (what you see is what you can hit):
 // swinging legs while walking, a gun that tilts with the bot's aim, a visor
 // showing which way it faces, a muzzle flash when it fires, a red flash when
@@ -10,12 +11,14 @@
 // once it's gone.
 import * as THREE from "three";
 import { disposeObject } from "./renderer.js";
-import { HITBOX_RADIUS, HEAD_SIZE } from "../engine/damage.js";
+import { HITBOX_RADIUS, HEAD_RADIUS, HEAD_FROM } from "../engine/damage.js";
 import { BODY_HEIGHT } from "../engine/geometry.js";
 
 const FALL_TIME = 0.45;
 const HIDE_AFTER = 3;          // s dead before the body disappears
-const LEG_H = 0.75;
+const LEG_H = 0.85;
+// The head, as the hitbox sees it: from the neck (HEAD_FROM of the height) up.
+const HEAD_SIZE = BODY_HEIGHT * (1 - HEAD_FROM);
 const TEAM_COLORS = { enemy: 0xc2410c, a: 0x2563eb, b: 0xea580c };
 
 export function createActorMeshes(scene) {
@@ -43,8 +46,9 @@ export function createActorMeshes(scene) {
     const w = HITBOX_RADIUS * 2;
     const torsoH = BODY_HEIGHT - HEAD_SIZE - LEG_H;
     part(skin, w, torsoH, w * 0.7, 0, LEG_H + torsoH / 2, 0, body);
-    part(skin, HEAD_SIZE, HEAD_SIZE, HEAD_SIZE, 0, BODY_HEIGHT - HEAD_SIZE / 2, 0, body);
-    part(visorMat, HEAD_SIZE * 0.8, HEAD_SIZE * 0.25, 0.02, 0, BODY_HEIGHT - HEAD_SIZE * 0.4, -HEAD_SIZE / 2 - 0.01, body);
+    const headW = HEAD_RADIUS * 2;
+    part(skin, headW, HEAD_SIZE, headW, 0, BODY_HEIGHT - HEAD_SIZE / 2, 0, body);
+    part(visorMat, headW * 0.8, HEAD_SIZE * 0.2, 0.02, 0, BODY_HEIGHT - HEAD_SIZE * 0.45, -headW / 2 - 0.01, body);
     const legs = [-1, 1].map(side => {
       const hip = new THREE.Group();
       hip.position.set(side * w * 0.25, LEG_H, 0);

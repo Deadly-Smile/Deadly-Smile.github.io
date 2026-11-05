@@ -18,7 +18,7 @@
 // sides). Pure: no three.js/DOM; `rand` is injectable for tests.
 import { createPlayer, eyeHeight } from "./player.js";
 import { createLoadout, activeWeapon } from "./weapons.js";
-import { createHealth } from "./damage.js";
+import { createHealth, TORSO_CENTRE } from "./damage.js";
 import { lineOfSight } from "./geometry.js";
 import { nearestNode } from "./nav.js";
 import { findPath, smoothPath } from "./path.js";
@@ -340,11 +340,11 @@ export function thinkBot(bot, world, dt, rand = Math.random) {
         }
         break;
       }
-      // Aim at the chest, off by an error that settles over time.
+      // Aim at the torso, off by an error that settles over time.
       const decay = Math.exp(-d.aimSettle * dt);
       b.aimError = [b.aimError[0] * decay, b.aimError[1] * decay];
       const eye = eyeOf(bot);
-      const aimAt = [target.pos[0], target.pos[1] + target.height * 0.6, target.pos[2]];
+      const aimAt = [target.pos[0], target.pos[1] + target.height * TORSO_CENTRE, target.pos[2]];
       const t = b.wobblePhase + b.stateTime;
       lookYaw = yawTo(eye, aimAt) + b.aimError[0] + d.wobble * (Math.sin(t * 1.7) + 0.5 * Math.sin(t * 4.3)) / 1.5;
       lookPitch = pitchTo(eye, aimAt) + b.aimError[1] + d.wobble * 0.6 * Math.sin(t * 2.3 + 1);
