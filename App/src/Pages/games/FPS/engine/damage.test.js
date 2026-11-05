@@ -84,6 +84,7 @@ const tick = (h, seconds) => { for (let i = 0; i < Math.round(seconds / STEP); i
   check("headshots fall off too", round(shotDamage(w, 200, "head")), round(w.damage * w.falloff[2] * w.headshot));
   check("sniper headshot kills", shotDamage(WEAPONS.sniper, 100, "head") >= MAX_HP, true);
   check("sniper body shot doesn't", shotDamage(WEAPONS.sniper, 100, "body") < MAX_HP, true);
+  check("headshot multiplier can be capped", shotDamage(WEAPONS.sniper, 10, "head", 1.5), WEAPONS.sniper.damage * 1.5);
   const close = WEAPONS.shotgun.pellets * shotDamage(WEAPONS.shotgun, 3, "body");
   check("point-blank shotgun kills", close >= MAX_HP, true);
   check("long-range shotgun doesn't", WEAPONS.shotgun.pellets * shotDamage(WEAPONS.shotgun, 30, "body") < MAX_HP / 2, true);

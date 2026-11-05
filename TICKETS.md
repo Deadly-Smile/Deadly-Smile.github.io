@@ -110,6 +110,7 @@ App/src/Pages/games/FPS/
 - Difficulty settings: reaction time, accuracy spread, damage.
 - **Team-aware from the start:** every unit has a `team`; AI picks the nearest visible enemy of another team, never a hardcoded "player". Multiplayer (FPS-11) depends on this.
 - AI fires the same weapons from the FPS-4 table.
+- As built: the training dummies are gone; 4 bots start at hidden enemy spawns and respawn there (out of the player's sight, ≥ 15 m away) until FPS-7's waves take over. Bot difficulty (easy/normal/hard: reaction, aim error and sway, turn speed, damage, weapon mix; snipers only on hard) is picked in the menu now rather than in FPS-8. Bot headshots are capped at 1.5×. The player respawns at the safest spawn (any player/team spawn no bot can see, farthest from bots) with 2 s of spawn protection; single-player respawning itself goes away in FPS-7 (death ends the run).
 
 **Acceptance:** bots patrol, notice you, chase, shoot and search after losing sight. `ai.test.js` covers state transitions and A*.
 

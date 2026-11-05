@@ -95,7 +95,10 @@ export function buildNavGraph(map, spacing = SPACING) {
 
 // Nearest node to a world position (searching a few cells out from the
 // position's own cell), preferring nodes at a similar height. -1 if none.
-export function nearestNode(nav, pos, maxRing = 3) {
+// `component` restricts the search to one connected component, e.g. the
+// one a bot stands in, so a goal beside an unclimbable crate resolves to
+// the floor next to it rather than the crate's top.
+export function nearestNode(nav, pos, maxRing = 3, component = null) {
   const c0 = Math.round((pos[0] - nav.originX) / nav.spacing);
   const r0 = Math.round((pos[2] - nav.originZ) / nav.spacing);
   let best = -1;
@@ -108,6 +111,7 @@ export function nearestNode(nav, pos, maxRing = 3) {
         const i = nav.index[r * nav.cols + c];
         if (i < 0) continue;
         const n = nav.nodes[i];
+        if (component !== null && n.component !== component) continue;
         const dist = Math.hypot(n.x - pos[0], (n.y - pos[1]) * 2, n.z - pos[2]);
         if (dist < bestDist) {
           bestDist = dist;

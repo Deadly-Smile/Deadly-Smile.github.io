@@ -12,7 +12,9 @@ const MAX_DECALS = 128;
 const MAX_PUFFS = 24;
 const MAX_GRENADES = 8;
 const MAX_BLASTS = 4;
+const MAX_TRACERS = 24;
 const PUFF_LIFE = 0.18;
+const TRACER_LIFE = 0.08;
 const BLAST_LIFE = 0.4;
 
 const Z = new THREE.Vector3(0, 0, 1);
@@ -68,6 +70,19 @@ export function createEffects(scene) {
   });
   let nextBlast = 0;
 
+  // Tracers: a short-lived line per bullet, so incoming fire shows where it
+  // came from.
+  const tracers = Array.from({ length: MAX_TRACERS }, () => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array(6), 3));
+    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffe2a8, transparent: true, depthWrite: false }));
+    line.visible = false;
+    line.frustumCulled = false;
+    root.add(line);
+    return { line, life: 0 };
+  });
+  let nextTracer = 0;
+
   const muzzleLight = new THREE.PointLight(0xffc36b, 0, 8, 2);
   const blastLight = new THREE.PointLight(0xff9a40, 0, 18, 2);
   root.add(muzzleLight, blastLight);
@@ -92,6 +107,16 @@ export function createEffects(scene) {
       p.mesh.position.set(...point);
       p.life = PUFF_LIFE;
       p.mesh.visible = true;
+    },
+    tracer(from, to) {
+      const t = tracers[nextTracer];
+      nextTracer = (nextTracer + 1) % MAX_TRACERS;
+      const attr = t.line.geometry.attributes.position;
+      attr.setXYZ(0, ...from);
+      attr.setXYZ(1, ...to);
+      attr.needsUpdate = true;
+      t.life = TRACER_LIFE;
+      t.line.visible = true;
     },
     muzzle(position) {
       muzzleLight.position.set(...position);
@@ -143,6 +168,12 @@ export function createEffects(scene) {
         const k = 1 - b.life / BLAST_LIFE;
         b.mesh.scale.setScalar(b.radius * (0.2 + 0.6 * Math.sqrt(k)));
         b.mesh.material.opacity = 0.85 * (1 - k);
+      }
+      for (const t of tracers) {
+        if (!t.line.visible) continue;
+        t.life -= dt;
+        t.line.visible = t.life > 0;
+        t.line.material.opacity = 0.9 * Math.max(0, t.life / TRACER_LIFE);
       }
       muzzleTime -= dt;
       muzzleLight.intensity = muzzleTime > 0 ? 6 : 0;

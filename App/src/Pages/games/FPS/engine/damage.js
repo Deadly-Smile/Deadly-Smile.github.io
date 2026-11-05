@@ -73,9 +73,10 @@ export function raycastActors(p0, p1, actors, ignoreId) {
   return best;
 }
 
-// One pellet/bullet hitting `part` at `distance` metres.
-export function shotDamage(weapon, distance, part) {
-  return damageAt(weapon, distance) * (part === "head" ? weapon.headshot ?? 1 : 1);
+// One pellet/bullet hitting `part` at `distance` metres. `maxHeadshot` caps
+// the head multiplier (bots use it).
+export function shotDamage(weapon, distance, part, maxHeadshot = Infinity) {
+  return damageAt(weapon, distance) * (part === "head" ? Math.min(weapon.headshot ?? 1, maxHeadshot) : 1);
 }
 
 // Knife: double (weapon.backstab) damage when the attacker faces roughly the

@@ -8,6 +8,7 @@ import { buildMapScene } from "./render/mapScene.js";
 import { createInput } from "./input.js";
 import { createGame } from "./game.js";
 import { WEAPONS, PRIMARIES, DEFAULT_PRIMARY } from "./engine/weapons.js";
+import { DIFFICULTIES } from "./engine/ai.js";
 
 // FPS game shell. This module (and three.js with it) is lazy-loaded from
 // Games.jsx, so nothing here is downloaded until the game is opened.
@@ -93,10 +94,11 @@ function ScopeOverlay() {
 const FADE_KEYFRAMES = "@keyframes fps-fade { from { opacity: 1 } to { opacity: 0 } }";
 const fade = (ms) => ({ animation: `fps-fade ${ms}ms ease-out forwards` });
 
-function HealthHud({ hp }) {
-  const color = hp > 60 ? "bg-emerald-400" : hp > 30 ? "bg-amber-400" : "bg-red-500";
+function HealthHud({ hp, shielded }) {
+  const color = shielded ? "bg-sky-400" : hp > 60 ? "bg-emerald-400" : hp > 30 ? "bg-amber-400" : "bg-red-500";
   return (
     <div className="pointer-events-none absolute bottom-4 left-4 w-48 font-mono text-white drop-shadow">
+      {shielded && <div className="text-[11px] text-sky-300 mb-1">spawn protection</div>}
       <div className="flex items-baseline gap-2">
         <span className="text-xs text-white/60">HP</span>
         <span className="text-3xl font-bold">{hp}</span>
@@ -177,6 +179,7 @@ export default function FPS() {
   const [phase, setPhase] = useState("menu");
   const [lockFailed, setLockFailed] = useState(false);
   const [primary, setPrimary] = usePersistentState("game:fps:primary", DEFAULT_PRIMARY);
+  const [difficulty, setDifficulty] = usePersistentState("game:fps:difficulty", "normal");
   const [hud, setHud] = useState(null);
 
   const mountRef = useRef(null);
@@ -271,7 +274,7 @@ export default function FPS() {
     const map = getMap(mapId);
     const world = inGame
       ? createGame({
-        map, view, primary, input: inputRef.current,
+        map, view, primary, difficulty, input: inputRef.current,
         getSettings: () => settingsRef.current, isPaused: () => pausedRef.current,
       })
       : createOrbit(map, view.camera);
@@ -284,7 +287,7 @@ export default function FPS() {
       worldRef.current = null;
       world.dispose?.();
     };
-  }, [mapId, inGame, primary, touchOnly, error]);
+  }, [mapId, inGame, primary, difficulty, touchOnly, error]);
 
   useEffect(() => {
     mapSceneRef.current?.setDebug(showDebug);
@@ -352,7 +355,12 @@ export default function FPS() {
       {inGame && hud && hud.marker.n > 0 && <HitMarker key={hud.marker.n} kind={hud.marker.kind} />}
       {inGame && hud && hud.hurt > 0 && <HurtFlash key={hud.hurt} />}
       {inGame && hud && !hud.dead && <WeaponHud hud={hud} />}
-      {inGame && hud && !hud.dead && <HealthHud hp={hud.hp} />}
+      {inGame && hud && !hud.dead && <HealthHud hp={hud.hp} shielded={hud.protected} />}
+      {inGame && hud && (
+        <div className="pointer-events-none absolute top-4 left-4 font-mono text-sm text-white/80 drop-shadow">
+          Kills <span className="text-white font-bold">{hud.kills}</span>
+        </div>
+      )}
       {inGame && hud?.dead && <DeathOverlay respawnIn={hud.respawnIn} />}
 
       {phase === "paused" && (
@@ -409,6 +417,14 @@ export default function FPS() {
                 className={`px-3 py-1 rounded-md text-xs border transition-colors ${
                   id === primary ? "border-indigo-400 bg-indigo-600/30 text-white" : "border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-500"}`}>
                 {WEAPONS[id].name}
+              </button>
+            ))}
+            <span className="text-xs text-slate-400 ml-3 mr-1">Bots</span>
+            {DIFFICULTIES.map(id => (
+              <button key={id} onClick={() => setDifficulty(id)}
+                className={`px-3 py-1 rounded-md text-xs border capitalize transition-colors ${
+                  id === difficulty ? "border-indigo-400 bg-indigo-600/30 text-white" : "border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-500"}`}>
+                {id}
               </button>
             ))}
           </div>
