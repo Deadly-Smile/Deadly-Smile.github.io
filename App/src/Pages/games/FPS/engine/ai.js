@@ -87,8 +87,10 @@ function freshBrain() {
   };
 }
 
-export function createBot({ id, team, spawn, primary = "rifle", difficulty = "normal" }) {
-  const bot = Object.assign(createPlayer(spawn), { id, team, difficulty });
+// `skill` is a DIFFICULTY-shaped profile (survival waves pass a scaled-up
+// one); `difficulty` names a stock profile when no skill is given.
+export function createBot({ id, team, spawn, primary = "rifle", difficulty = "normal", skill = DIFFICULTY[difficulty], maxHp }) {
+  const bot = Object.assign(createPlayer(spawn), { id, team, skill: skill ?? DIFFICULTY.normal, maxHp });
   resetBot(bot, spawn, primary);
   return bot;
 }
@@ -96,7 +98,7 @@ export function createBot({ id, team, spawn, primary = "rifle", difficulty = "no
 // Respawn in place (same object, so whatever renders it keeps working).
 export function resetBot(bot, spawn, primary = bot.loadout?.slots[0] ?? "rifle") {
   Object.assign(bot, createPlayer(spawn), {
-    health: createHealth(),
+    health: createHealth(bot.maxHp),
     loadout: createLoadout(primary),
     brain: freshBrain(),
     deadFor: 0,
@@ -259,7 +261,7 @@ function findCover(bot, world, threat) {
 // tick (for stepPlayer / stepWeapons) and turns the bot's view.
 export function thinkBot(bot, world, dt, rand = Math.random) {
   const b = bot.brain;
-  const d = DIFFICULTY[bot.difficulty] ?? DIFFICULTY.normal;
+  const d = bot.skill;
   const w = activeWeapon(bot.loadout);
   const ammo = bot.loadout.ammo[w.id];
   // Bots never run dry: their reserve tops itself up (they still reload).

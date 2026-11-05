@@ -4,6 +4,10 @@
 // showing which way it faces, a muzzle flash when it fires, a red flash when
 // hit, and a fall backwards when killed. Crouching squashes the figure to
 // the crouched height. Positions are interpolated between ticks.
+//
+// The list of actors can change every frame (waves add bots, dead ones are
+// removed): a figure is built the first time an actor shows up and freed
+// once it's gone.
 import * as THREE from "three";
 import { disposeObject } from "./renderer.js";
 import { HITBOX_RADIUS, HEAD_SIZE } from "../engine/damage.js";
@@ -14,7 +18,7 @@ const HIDE_AFTER = 3;          // s dead before the body disappears
 const LEG_H = 0.75;
 const TEAM_COLORS = { enemy: 0xc2410c, a: 0x2563eb, b: 0xea580c };
 
-export function createActorMeshes(scene, actors) {
+export function createActorMeshes(scene) {
   const root = new THREE.Group();
   scene.add(root);
   const unit = new THREE.BoxGeometry(1, 1, 1);
@@ -31,7 +35,7 @@ export function createActorMeshes(scene, actors) {
     return m;
   };
 
-  const figures = actors.map(a => {
+  const build = (a) => {
     const skin = new THREE.MeshStandardMaterial({ color: TEAM_COLORS[a.team] ?? 0x9ca3af, roughness: 0.7, emissive: 0xff0000, emissiveIntensity: 0 });
     const group = new THREE.Group();      // at the feet, turns with yaw, falls on death
     const body = new THREE.Group();       // squashed when crouching
@@ -59,12 +63,24 @@ export function createActorMeshes(scene, actors) {
     body.add(arms);
     root.add(group);
     return { group, body, legs, arms, flash, skin, phase: Math.random() * 6 };
-  });
+  };
+  const figures = new Map(); // actor id → figure
 
   return {
-    update(alpha, dt) {
-      actors.forEach((a, i) => {
-        const f = figures[i];
+    update(actors, alpha, dt) {
+      const seen = new Set();
+      for (const a of actors) {
+        seen.add(a.id);
+        if (!figures.has(a.id)) figures.set(a.id, build(a));
+      }
+      for (const [id, f] of figures) {
+        if (seen.has(id)) continue;
+        root.remove(f.group);
+        f.skin.dispose();
+        figures.delete(id);
+      }
+      actors.forEach((a) => {
+        const f = figures.get(a.id);
         const dead = a.health.dead;
         f.group.visible = !(dead && a.deadFor > HIDE_AFTER);
         if (!f.group.visible) return;

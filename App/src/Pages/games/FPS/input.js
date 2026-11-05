@@ -20,6 +20,7 @@ const MAX_MOUSE_JUMP = 400;
 export function createInput(lockTarget, { onLockChange, onLockError } = {}) {
   const down = new Set();
   let jumpQueued = false; // a key press, not a held key: one jump per press
+  let useQueued = false;  // E: pick something up
   let dx = 0;
   let dy = 0;
   // Weapon controls: mouse buttons are held; the rest are presses queued
@@ -37,7 +38,7 @@ export function createInput(lockTarget, { onLockChange, onLockError } = {}) {
   const isLocked = () => document.pointerLockElement === lockTarget;
   const reset = () => {
     down.clear();
-    jumpQueued = false;
+    jumpQueued = useQueued = false;
     dx = dy = 0;
     fireHeld = fireQueued = adsHeld = reloadQueued = lastQueued = false;
     slotQueued = null;
@@ -49,6 +50,7 @@ export function createInput(lockTarget, { onLockChange, onLockError } = {}) {
     if (PREVENT.has(e.code)) e.preventDefault();
     if (!e.repeat) {
       if (e.code === "Space") jumpQueued = true;
+      else if (e.code === "KeyE") useQueued = true;
       else if (e.code === "KeyR") reloadQueued = true;
       else if (e.code === "KeyQ") lastQueued = true;
       else if (/^Digit[1-4]$/.test(e.code)) slotQueued = Number(e.code[5]) - 1;
@@ -97,14 +99,14 @@ export function createInput(lockTarget, { onLockChange, onLockError } = {}) {
   document.addEventListener("pointerlockerror", onError);
 
   return {
-    // Movement state for one simulation tick (consumes a queued jump).
+    // Movement state for one simulation tick (consumes queued jump/use).
     read() {
       const held = (action) => BINDINGS[action].some(code => down.has(code));
       const state = {
         forward: held("forward"), back: held("back"), left: held("left"), right: held("right"),
-        sprint: held("sprint"), crouch: held("crouch"), jump: jumpQueued,
+        sprint: held("sprint"), crouch: held("crouch"), jump: jumpQueued, use: useQueued,
       };
-      jumpQueued = false;
+      jumpQueued = useQueued = false;
       return state;
     },
     // Weapon controls for one tick (consumes queued presses).

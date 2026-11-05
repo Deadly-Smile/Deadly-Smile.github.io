@@ -1,39 +1,34 @@
-// ─── Single-player session ──────────────────────────────────────────────────
+// ─── Single-player session: survival waves ──────────────────────────────────
 // Glue between the pure engine and the browser: feeds input into the
-// simulation each tick, runs the bots, turns weapon events into rays/
-// projectiles/damage/effects, and places the camera each frame. Grows with
-// every ticket; for now it's the player against a fixed squad of bots that
-// respawn at hidden spawns (FPS-7 turns this into waves).
+// simulation each tick, runs the wave director and the bots, turns weapon
+// events into rays/projectiles/damage/effects, handles drops and pickups,
+// and places the camera each frame. Death ends the run (`onGameOver`).
 import { createPlayer, stepPlayer, look, eyeHeight, WALK_SPEED } from "./engine/player.js";
 import { createLoadout, stepWeapons, activeWeapon, WEAPONS } from "./engine/weapons.js";
 import { createGrenade, stepGrenade } from "./engine/projectile.js";
-import { raycastWorld, lineOfSight, EYE_HEIGHT } from "./engine/geometry.js";
+import { raycastWorld, EYE_HEIGHT } from "./engine/geometry.js";
 import {
   createHealth, applyDamage, stepHealth, raycastActors,
   shotDamage, meleeDamage, explosionDamage,
 } from "./engine/damage.js";
 import { buildNavGraph } from "./engine/nav.js";
-import {
-  createBot, resetBot, thinkBot, hear, notifyDamage, eyeOf, canSee, DIFFICULTY, HEARING_RANGE, BOT_HEADSHOT_CAP,
-} from "./engine/ai.js";
+import { createBot, thinkBot, hear, notifyDamage, eyeOf, HEARING_RANGE, BOT_HEADSHOT_CAP } from "./engine/ai.js";
+import { createWaves, stepWaves, waveKill, pickSpawnPoint, scoreOf } from "./engine/waves.js";
+import { rollDrops, stepDrops, nearDrop, takeDrop, swapPrimary } from "./engine/pickups.js";
 import { createViewModel } from "./render/viewModel.js";
 import { createEffects } from "./render/effects.js";
 import { createActorMeshes } from "./render/actors.js";
+import { createPickupMeshes } from "./render/pickups.js";
 
 // Radians of turn per pixel of mouse movement at sensitivity 1.
 const MOUSE_RADIANS_PER_PX = 0.0022;
 // Grenades leave the hand a little above the aim line.
 const THROW_LIFT = 0.18;
-const PLAYER_RESPAWN_DELAY = 3;
-// After (re)spawning the player can't be hurt for this long, so bots that
-// chased them back to the start can't kill them again on arrival.
-const SPAWN_PROTECTION = 2;
-const BOT_COUNT = 4;
-const BOT_RESPAWN_DELAY = 6;
-// A bot never respawns closer than this to the player, nor in their sight.
-const SAFE_SPAWN_DIST = 15;
+const GAME_OVER_DELAY = 2;     // s of death camera before the results
+const CORPSE_TIME = 3;         // s a dead bot stays before it's removed
 const HIT_FLASH = 0.15;
 const MUZZLE_FLASH = 0.06;
+const MESSAGE_TIME = 1.5;
 const BLOOD = 0xb91c1c;
 
 // Unit vector for a view direction (yaw 0 = -z, pitch up positive).
@@ -42,68 +37,34 @@ function direction(yaw, pitch) {
   return [-Math.sin(yaw) * c, Math.sin(pitch), -Math.cos(yaw) * c];
 }
 
-export function createGame({ map, view, input, getSettings, isPaused, primary, difficulty = "normal" }) {
+export function createGame({ map, view, input, getSettings, isPaused, primary, difficulty = "normal", onGameOver }) {
   const nav = buildNavGraph(map);
-  let bots = [];
-
-  // Safest player start: one no living bot can see, then the one farthest
-  // from the nearest bot. Random among equals (e.g. at the very start).
-  // Respawns may also use both teams' spawns, so there's always somewhere
-  // away from bots that chased the player back to the start.
-  const respawnSpots = [...map.playerSpawns, ...map.teamSpawns.a, ...map.teamSpawns.b];
-  function pickSpawn() {
-    const living = bots.filter(b => !b.health.dead);
-    if (!living.length) return map.playerSpawns[Math.floor(Math.random() * map.playerSpawns.length)];
-    const score = (s) => {
-      const probe = { pos: s.pos, height: 1.8 };
-      const seen = living.some(b => canSee(b, probe, map.boxes, { range: 80, anyDirection: true }));
-      const nearest = Math.min(Infinity, ...living.map(b => Math.hypot(b.pos[0] - s.pos[0], b.pos[2] - s.pos[2])));
-      return (seen ? 0 : 1000) + Math.min(nearest, 999) + Math.random();
-    };
-    const scored = respawnSpots.map(s => [score(s), s]);
-    return scored.reduce((best, cur) => (cur[0] > best[0] ? cur : best))[1];
-  }
+  const start = map.playerSpawns[Math.floor(Math.random() * map.playerSpawns.length)];
   // The player is an actor too (id/team/health), so bots and grenades can hurt them.
-  const spawnPlayer = () => Object.assign(createPlayer(pickSpawn()), {
-    id: "player", team: "player", health: createHealth(), protectedFor: SPAWN_PROTECTION,
-  });
-
-  let player = spawnPlayer();
-  let loadout = createLoadout(primary);
-  let respawnIn = 0;
-
-  // Hidden enemy spawn out of the player's sight and not too close; any
-  // enemy spawn if none qualifies.
-  function botSpawn() {
-    const eye = [player.pos[0], player.pos[1] + EYE_HEIGHT, player.pos[2]];
-    const ok = map.enemySpawns.filter(s =>
-      Math.hypot(s.pos[0] - player.pos[0], s.pos[2] - player.pos[2]) >= SAFE_SPAWN_DIST
-      && !lineOfSight(eye, [s.pos[0], s.pos[1] + 1.6, s.pos[2]], map.boxes));
-    const list = ok.length ? ok : map.enemySpawns;
-    return list[Math.floor(Math.random() * list.length)];
-  }
-  const botPrimaries = (DIFFICULTY[difficulty] ?? DIFFICULTY.normal).primaries;
-  const randomPrimary = () => botPrimaries[Math.floor(Math.random() * botPrimaries.length)];
-  bots = Array.from({ length: BOT_COUNT }, (_, i) => Object.assign(
-    createBot({ id: `bot-${i}`, team: "enemy", spawn: map.enemySpawns[i % map.enemySpawns.length], primary: randomPrimary(), difficulty }),
-    { hitFlash: 0, flash: 0 },
-  ));
-  const actors = () => [player, ...bots];
-  const botWorld = { boxes: map.boxes, nav, actors: [] };
-  const damageScale = DIFFICULTY[difficulty]?.damage ?? 1;
-
+  const player = Object.assign(createPlayer(start), { id: "player", team: "player", health: createHealth() });
+  const loadout = createLoadout(primary);
+  const waves = createWaves(difficulty);
+  let bots = [];
+  let botSerial = 0;
+  let drops = [];
   const grenades = [];
+  const botWorld = { boxes: map.boxes, nav, actors: [] };
+  const actors = () => [player, ...bots];
+
   const viewModel = createViewModel(view.vmScene);
   const fx = createEffects(view.scene);
-  const botMeshes = createActorMeshes(view.scene, bots);
+  const botMeshes = createActorMeshes(view.scene);
+  const pickupMeshes = createPickupMeshes(view.scene);
   let eye = eyeHeight(player);
   let zoom = 1; // current FOV multiplier (eases toward the weapon's ADS zoom)
+  let overIn = null; // s until the results screen, once dead
 
-  // HUD feedback, as counters so the React side can restart an animation
-  // each time one changes.
+  // Run stats and HUD feedback (counters let React restart an animation).
+  const stats = { kills: 0, headshots: 0 };
   let hurtCount = 0;
   let marker = { n: 0, kind: "hit" };
-  let kills = 0;
+  let message = { n: 0, text: "", left: 0 };
+  let banner = { n: 0, text: "" };
 
   // Sniper scope overlay is up once the zoom has mostly settled in.
   const scoped = () => !!activeWeapon(loadout).scope && loadout.ads && zoom < 0.5;
@@ -113,32 +74,55 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
   // doesn't shift shots away from the crosshair.
   const eyePos = () => [player.pos[0], player.pos[1] + eye, player.pos[2]];
 
-  // Every bot within `range` of a noise at `pos` hears it.
+  const say = (text) => { message = { n: message.n + 1, text, left: MESSAGE_TIME }; };
+
+  // Every living bot within `range` of a noise at `pos` hears it.
   function noise(pos, range) {
     for (const b of bots) {
       if (Math.hypot(b.pos[0] - pos[0], b.pos[2] - pos[2]) <= range) hear(b, pos);
     }
   }
 
+  function spawnBot(config) {
+    const at = pickSpawnPoint(map.enemySpawns, player.pos, EYE_HEIGHT, map.boxes);
+    if (!at) return;
+    const primaries = config.skill.primaries;
+    const bot = Object.assign(createBot({
+      id: `bot-${botSerial++}`, team: "enemy", spawn: at,
+      primary: primaries[Math.floor(Math.random() * primaries.length)],
+      skill: config.skill, maxHp: config.hp,
+    }), { hitFlash: 0, flash: 0 });
+    // Survival: new arrivals come looking for the player straight away.
+    hear(bot, player.pos);
+    bots.push(bot);
+  }
+
   // Applies damage to any actor. `attacker` drives the hit marker (when it's
   // the player) and tells a bot where it was shot from.
   function hurt(actor, amount, { attacker = null, part = "body" } = {}) {
-    if (actor === player && player.protectedFor > 0) return;
     const { dealt, killed } = applyDamage(actor.health, amount);
     if (!dealt) return;
     if (actor === player) {
       hurtCount++;
       if (killed) {
-        respawnIn = PLAYER_RESPAWN_DELAY;
+        overIn = GAME_OVER_DELAY;
         loadout.ads = false;
       }
-    } else {
-      actor.hitFlash = HIT_FLASH;
-      if (killed) actor.deadFor = 0;
-      else if (attacker) notifyDamage(actor, attacker.pos);
+      return;
     }
-    if (attacker === player && actor !== player) {
-      if (killed) kills++;
+    actor.hitFlash = HIT_FLASH;
+    if (killed) {
+      actor.deadFor = 0;
+      waveKill(waves);
+      drops.push(...rollDrops(actor.pos, actor.loadout.slots[0]));
+    } else if (attacker) {
+      notifyDamage(actor, attacker.pos);
+    }
+    if (attacker === player) {
+      if (killed) {
+        stats.kills++;
+        if (part === "head") stats.headshots++;
+      }
       marker = { n: marker.n + 1, kind: killed ? "kill" : part === "head" ? "head" : "hit" };
     }
   }
@@ -206,12 +190,33 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
     }
   }
 
-  function respawnPlayer() {
-    player = spawnPlayer();
-    loadout = createLoadout(primary);
-    eye = eyeHeight(player);
-    zoom = 1;
+  // Walk-over pickups are automatic; a gun is taken with E. Returns the gun
+  // drop in reach (for the HUD prompt), if any.
+  function pickups(use) {
+    let gunInReach = null;
+    for (const d of drops) {
+      if (!nearDrop(d, player.pos)) continue;
+      if (d.kind === "gun") {
+        gunInReach ??= d;
+        continue;
+      }
+      const got = takeDrop(loadout, d);
+      if (got) {
+        say(got);
+        d.ttl = 0;
+      }
+    }
+    if (use && gunInReach) {
+      const left = swapPrimary(loadout, gunInReach, player.pos);
+      gunInReach.ttl = 0;
+      if (left) drops.push(left);
+      say(left ? `Picked up ${WEAPONS[gunInReach.weapon].name}` : `+${gunInReach.mag + gunInReach.reserve} ammo`);
+      gunInReach = null;
+    }
+    drops = drops.filter(d => d.ttl > 0);
+    return gunInReach;
   }
+  let gunPrompt = null;
 
   function stepBots(dt) {
     botWorld.actors = actors();
@@ -221,7 +226,6 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
       if (bot.health.dead) {
         bot.deadFor += dt;
         bot.prev = [...bot.pos];
-        if (bot.deadFor >= BOT_RESPAWN_DELAY) resetBot(bot, botSpawn(), randomPrimary());
         continue;
       }
       const { move, weapon } = thinkBot(bot, botWorld, dt);
@@ -230,23 +234,47 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
       const { events } = stepWeapons(bot.loadout, weapon, dt, ctx);
       for (const e of events) {
         if (e.type !== "shot") continue;
-        shoot(bot, e, eyeOf(bot), { scale: damageScale, maxHeadshot: BOT_HEADSHOT_CAP });
+        shoot(bot, e, eyeOf(bot), { scale: bot.skill.damage, maxHeadshot: BOT_HEADSHOT_CAP });
         bot.flash = MUZZLE_FLASH;
       }
       stepHealth(bot.health, dt);
     }
+    bots = bots.filter(b => !(b.health.dead && b.deadFor > CORPSE_TIME));
   }
+
+  function stepWaveDirector(dt) {
+    const alive = bots.filter(b => !b.health.dead).length;
+    const spawnReady = !!pickSpawnPoint(map.enemySpawns, player.pos, EYE_HEIGHT, map.boxes);
+    for (const e of stepWaves(waves, { alive, spawnReady }, dt)) {
+      if (e.type === "wave") banner = { n: banner.n + 1, text: `Wave ${e.wave}` };
+      else if (e.type === "spawn") spawnBot(e.config);
+      else if (e.type === "cleared") banner = { n: banner.n + 1, text: `Wave ${e.wave} cleared` };
+    }
+  }
+
+  const runStats = () => ({
+    wave: waves.wave,
+    waves: waves.cleared,
+    kills: stats.kills,
+    headshots: stats.headshots,
+    score: scoreOf({ ...stats, waves: waves.cleared }),
+  });
 
   return {
     update(dt) {
       if (isPaused()) return;
 
       if (player.health.dead) {
-        // Drain input so nothing queued while dead fires after respawning.
+        // Drain input so nothing queued is left over.
         input.read();
         input.readWeapon();
-        respawnIn -= dt;
-        if (respawnIn <= 0) respawnPlayer();
+        if (overIn !== null) {
+          overIn -= dt;
+          if (overIn <= 0) {
+            overIn = null;
+            onGameOver?.(runStats());
+          }
+        }
       } else {
         const move = input.read();
         stepPlayer(player, { ...move, ads: loadout.ads }, dt, map.boxes);
@@ -266,10 +294,13 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
         // lands above the crosshair (very visible through the sniper scope).
         look(player, kick[0], -kick[1]);
         stepHealth(player.health, dt);
-        player.protectedFor = Math.max(0, player.protectedFor - dt);
+        gunPrompt = pickups(move.use);
+        stepWaveDirector(dt);
       }
 
       stepBots(dt);
+      drops = stepDrops(drops, dt);
+      message.left = Math.max(0, message.left - dt);
 
       for (let i = grenades.length - 1; i >= 0; i--) {
         if (stepGrenade(grenades[i], dt, map.boxes)) {
@@ -328,7 +359,8 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
         speedFrac: Math.hypot(player.vel[0], player.vel[2]) / WALK_SPEED,
         onGround: player.onGround,
       });
-      botMeshes.update(paused ? 1 : alpha, dtFx);
+      botMeshes.update(bots, paused ? 1 : alpha, dtFx);
+      pickupMeshes.update(drops, dtFx);
       fx.setGrenades(grenades, t);
       fx.update(dtFx);
     },
@@ -337,14 +369,21 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
     hud() {
       const w = activeWeapon(loadout);
       const a = loadout.ammo[w.id];
+      const run = runStats();
       return {
         hp: Math.ceil(player.health.hp),
-        protected: player.protectedFor > 0,
         dead: player.health.dead,
-        respawnIn: Math.max(0, Math.ceil(respawnIn)),
         hurt: hurtCount,
         marker,
-        kills,
+        score: run.score,
+        kills: run.kills,
+        wave: waves.wave,
+        // Between waves: whole seconds to the next one; during: bots left.
+        breakLeft: waves.phase === "break" ? Math.ceil(waves.breakLeft) : null,
+        enemiesLeft: waves.phase === "active" ? waves.config.count - waves.killed : null,
+        banner,
+        message: message.left > 0 ? { n: message.n, text: message.text } : null,
+        prompt: gunPrompt ? `E — take ${WEAPONS[gunPrompt.weapon].name}` : null,
         weapon: w.name,
         kind: w.kind,
         mag: a?.mag ?? null,
@@ -366,6 +405,7 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
       viewModel.dispose();
       fx.dispose();
       botMeshes.dispose();
+      pickupMeshes.dispose();
     },
   };
 }

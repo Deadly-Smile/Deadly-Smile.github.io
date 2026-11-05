@@ -48,7 +48,7 @@ const LEGEND = [
 const CONTROLS = [
   ["W A S D", "move"], ["Mouse / ← → ↑ ↓", "look"], ["Shift", "sprint"],
   ["Space", "jump"], ["C", "crouch"], ["Left click", "fire"], ["Right click", "aim"],
-  ["R", "reload"], ["1–4 / wheel", "weapons"], ["Q", "last weapon"], ["Esc", "pause"],
+  ["R", "reload"], ["1–4 / wheel", "weapons"], ["Q", "last weapon"], ["E", "take gun"], ["Esc", "pause"],
 ];
 
 // How often the React HUD is refreshed from the game (it only re-renders
@@ -94,11 +94,10 @@ function ScopeOverlay() {
 const FADE_KEYFRAMES = "@keyframes fps-fade { from { opacity: 1 } to { opacity: 0 } }";
 const fade = (ms) => ({ animation: `fps-fade ${ms}ms ease-out forwards` });
 
-function HealthHud({ hp, shielded }) {
-  const color = shielded ? "bg-sky-400" : hp > 60 ? "bg-emerald-400" : hp > 30 ? "bg-amber-400" : "bg-red-500";
+function HealthHud({ hp }) {
+  const color = hp > 60 ? "bg-emerald-400" : hp > 30 ? "bg-amber-400" : "bg-red-500";
   return (
     <div className="pointer-events-none absolute bottom-4 left-4 w-48 font-mono text-white drop-shadow">
-      {shielded && <div className="text-[11px] text-sky-300 mb-1">spawn protection</div>}
       <div className="flex items-baseline gap-2">
         <span className="text-xs text-white/60">HP</span>
         <span className="text-3xl font-bold">{hp}</span>
@@ -135,12 +134,54 @@ function HitMarker({ kind }) {
   );
 }
 
-function DeathOverlay({ respawnIn }) {
+function DeathOverlay() {
   return (
     <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-red-950/40">
-      <div className="text-center">
-        <div className="text-4xl font-bold text-white drop-shadow">You died</div>
-        <div className="mt-2 text-sm text-white/70">Respawning in {respawnIn}…</div>
+      <div className="text-4xl font-bold text-white drop-shadow">You died</div>
+    </div>
+  );
+}
+
+// Top centre: the wave, and either the countdown to the next one or how
+// many enemies are left in this one. Big announcements fade in and out.
+function WaveHud({ hud }) {
+  return (
+    <div className="pointer-events-none absolute top-4 left-1/2 -translate-x-1/2 text-center font-mono text-white drop-shadow">
+      {hud.wave > 0 && <div className="text-sm text-white/70">Wave {hud.wave}</div>}
+      {hud.breakLeft != null
+        ? <div className="text-lg font-bold">{hud.wave === 0 ? "First wave" : "Next wave"} in {hud.breakLeft}</div>
+        : <div className="text-lg font-bold">{hud.enemiesLeft} {hud.enemiesLeft === 1 ? "enemy" : "enemies"} left</div>}
+    </div>
+  );
+}
+
+function Banner({ text }) {
+  return (
+    <div className="pointer-events-none absolute top-1/4 left-1/2 -translate-x-1/2 text-4xl font-bold text-white drop-shadow-lg" style={fade(2200)}>
+      {text}
+    </div>
+  );
+}
+
+// Run results, with the best score on this map.
+function GameOver({ result, mapName, onAgain, onQuit }) {
+  const rows = [["Wave reached", result.wave], ["Waves cleared", result.waves], ["Kills", result.kills], ["Headshot kills", result.headshots]];
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70">
+      <div className="w-80 max-h-full overflow-y-auto rounded-xl bg-slate-900 border border-slate-700 p-5 space-y-4 text-center">
+        <h2 className="text-2xl font-bold text-white">Game over</h2>
+        <div className="text-sm text-slate-400">{mapName}</div>
+        <div>
+          <div className="text-4xl font-bold text-white font-mono">{result.score}</div>
+          <div className={`text-xs ${result.isBest ? "text-amber-300" : "text-slate-400"}`}>
+            {result.isBest ? "New best!" : `Best: ${result.best}`}
+          </div>
+        </div>
+        <div className="text-sm text-slate-300 space-y-1">
+          {rows.map(([k, v]) => <div key={k} className="flex justify-between"><span className="text-slate-400">{k}</span><span className="font-mono">{v}</span></div>)}
+        </div>
+        <button onClick={onAgain} className="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">Play again</button>
+        <button onClick={onQuit} className="w-full py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200">Quit to menu</button>
       </div>
     </div>
   );
@@ -181,6 +222,9 @@ export default function FPS() {
   const [primary, setPrimary] = usePersistentState("game:fps:primary", DEFAULT_PRIMARY);
   const [difficulty, setDifficulty] = usePersistentState("game:fps:difficulty", "normal");
   const [hud, setHud] = useState(null);
+  const [result, setResult] = useState(null);     // last run's stats, on the game-over screen
+  const [session, setSession] = useState(0);      // bumped by Play / Play again: a fresh run
+  const [best, setBest] = usePersistentState("game:fps:best", {}); // map id → { score, wave, kills }
 
   const mountRef = useRef(null);
   const fpsRef = useRef(null);
@@ -192,6 +236,19 @@ export default function FPS() {
   pausedRef.current = phase !== "playing";
   const settingsRef = useRef(settings);
   settingsRef.current = { ...DEFAULT_SETTINGS, ...settings };
+
+  // Run over: record the best score for this map, show the results and give
+  // the mouse back so the buttons can be clicked. Read through a ref by the
+  // game, so it always sees the current map and best scores.
+  const gameOverRef = useRef(null);
+  gameOverRef.current = (stats) => {
+    const prev = best[mapId];
+    const isBest = !prev || stats.score > prev.score;
+    setResult({ ...stats, isBest, best: isBest ? stats.score : prev.score });
+    if (isBest) setBest(b => ({ ...b, [mapId]: { score: stats.score, wave: stats.wave, kills: stats.kills } }));
+    setPhase("over");
+    inputRef.current?.unlock();
+  };
 
   const inGame = phase !== "menu";
 
@@ -210,7 +267,7 @@ export default function FPS() {
     const input = createInput(mountRef.current, {
       onLockChange: (locked) => {
         if (locked) setLockFailed(false);
-        setPhase(p => (p === "menu" ? p : locked ? "playing" : "paused"));
+        setPhase(p => (p === "menu" || p === "over" ? p : locked ? "playing" : "paused"));
       },
       onLockError: () => setLockFailed(true),
     });
@@ -276,6 +333,7 @@ export default function FPS() {
       ? createGame({
         map, view, primary, difficulty, input: inputRef.current,
         getSettings: () => settingsRef.current, isPaused: () => pausedRef.current,
+        onGameOver: (stats) => gameOverRef.current(stats),
       })
       : createOrbit(map, view.camera);
     worldRef.current = world;
@@ -287,7 +345,7 @@ export default function FPS() {
       worldRef.current = null;
       world.dispose?.();
     };
-  }, [mapId, inGame, primary, difficulty, touchOnly, error]);
+  }, [mapId, inGame, primary, difficulty, session, touchOnly, error]);
 
   useEffect(() => {
     mapSceneRef.current?.setDebug(showDebug);
@@ -295,6 +353,8 @@ export default function FPS() {
 
   const play = () => {
     setLockFailed(false);
+    setResult(null);
+    setSession(n => n + 1);
     setPhase("paused");          // becomes "playing" once the lock is granted
     inputRef.current?.lock();
   };
@@ -304,6 +364,7 @@ export default function FPS() {
   };
   const quit = () => {
     inputRef.current?.unlock();
+    setResult(null);
     setPhase("menu");
   };
   const updateSetting = (key, value) => setSettings(s => ({ ...DEFAULT_SETTINGS, ...s, [key]: value }));
@@ -355,17 +416,33 @@ export default function FPS() {
       {inGame && hud && hud.marker.n > 0 && <HitMarker key={hud.marker.n} kind={hud.marker.kind} />}
       {inGame && hud && hud.hurt > 0 && <HurtFlash key={hud.hurt} />}
       {inGame && hud && !hud.dead && <WeaponHud hud={hud} />}
-      {inGame && hud && !hud.dead && <HealthHud hp={hud.hp} shielded={hud.protected} />}
+      {inGame && hud && !hud.dead && <HealthHud hp={hud.hp} />}
       {inGame && hud && (
         <div className="pointer-events-none absolute top-4 left-4 font-mono text-sm text-white/80 drop-shadow">
-          Kills <span className="text-white font-bold">{hud.kills}</span>
+          <div>Score <span className="text-white font-bold">{hud.score}</span></div>
+          <div>Kills <span className="text-white font-bold">{hud.kills}</span></div>
         </div>
       )}
-      {inGame && hud?.dead && <DeathOverlay respawnIn={hud.respawnIn} />}
+      {inGame && hud && !hud.dead && <WaveHud hud={hud} />}
+      {inGame && hud && hud.banner.n > 0 && <Banner key={hud.banner.n} text={hud.banner.text} />}
+      {inGame && hud?.message && (
+        <div key={hud.message.n} className="pointer-events-none absolute left-1/2 bottom-28 -translate-x-1/2 font-mono text-sm text-emerald-300 drop-shadow" style={fade(1500)}>
+          {hud.message.text}
+        </div>
+      )}
+      {phase === "playing" && hud?.prompt && (
+        <div className="pointer-events-none absolute left-1/2 top-[58%] -translate-x-1/2 rounded bg-black/50 px-3 py-1 font-mono text-sm text-white">
+          {hud.prompt}
+        </div>
+      )}
+      {phase !== "over" && hud?.dead && <DeathOverlay />}
+      {phase === "over" && result && (
+        <GameOver result={result} mapName={current.name} onAgain={play} onQuit={quit} />
+      )}
 
       {phase === "paused" && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60">
-          <div className="w-80 rounded-xl bg-slate-900 border border-slate-700 p-5 space-y-4">
+          <div className="w-80 max-h-full overflow-y-auto rounded-xl bg-slate-900 border border-slate-700 p-5 space-y-4">
             <h2 className="text-xl font-bold text-white text-center">Paused</h2>
             <button onClick={resume} className="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">
               Resume
@@ -433,6 +510,11 @@ export default function FPS() {
               <input type="checkbox" checked={showDebug} onChange={e => setShowDebug(e.target.checked)} />
               Show spawns &amp; nav grid
             </label>
+            {best[current.id] && (
+              <span className="text-xs text-slate-400 font-mono">
+                Best {best[current.id].score} · wave {best[current.id].wave}
+              </span>
+            )}
             <button onClick={play} className="px-6 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">
               Play {current.name}
             </button>

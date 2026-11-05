@@ -123,6 +123,7 @@ App/src/Pages/games/FPS/
 - Drops on kill: an ammo pack always or most of the time, sometimes the enemy's gun. Drops despawn after a while.
 - Pickups: walk over ammo to pick it up. Press E to swap guns.
 - Score (kills, headshots, waves survived). Best score per map saved with `usePersistentState` (`game:fps:best`).
+- As built: death ends the run (no more respawning or spawn protection) and shows a game-over screen with the stats, best score, Play again and Quit; the menu shows the map's best. New bots come looking for the player as soon as they spawn. Ammo packs top up the primary and pistol by a magazine each (reserve capped at 2× the starting reserve); a dropped gun comes with a full magazine plus one spare, and swapping leaves the old primary (with its ammo) on the ground.
 
 **Acceptance:** nothing spawns in view, and drops can be picked up. `waves.test.js` covers scaling, spawn-point selection and drop rules.
 
