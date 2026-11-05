@@ -42,7 +42,8 @@ const tick = (l, input) => stepWeapons(l, input, STEP, {}, seq());
 // ─── Table ───────────────────────────────────────────────────────────────────
 for (const [id, w] of Object.entries(WEAPONS)) {
   const ok = w.id === id && w.rpm > 0 && w.draw > 0
-    && (w.kind !== "gun" || (w.mag > 0 && w.reserve >= 0 && w.reload > 0 && w.pellets >= 1 && w.spread.ads <= w.spread.hip));
+    && (w.kind !== "gun" || (w.mag > 0 && w.reserve >= 0 && w.reload > 0 && w.pellets >= 1 && w.spread.ads <= w.spread.hip
+      && w.recoil.recover >= 0 && w.recoil.recover <= 1));
   check(`table entry ${id} is complete`, ok, true);
 }
 check("primaries are slot 0", PRIMARIES.every(id => WEAPONS[id].slot === 0), true);
@@ -172,6 +173,23 @@ check("loadout slots", createLoadout("smg").slots, ["smg", "pistol", "knife", "g
   check("recoil kicks the view up", r.kickPitch > 0, true);
   const settled = r.kickPitch + run(l, IDLE, 2).kickPitch;
   check("part of the kick recovers after firing stops", settled < r.kickPitch * 0.5, true);
+}
+{
+  // Single-shot guns: the view settles back exactly where it was aimed, so
+  // the crosshair ends up on the bullet hole (the scope "shoots where it looks").
+  for (const id of ["sniper", "shotgun", "pistol"]) {
+    const l = createLoadout(id);
+    if (id === "pistol") l.active = 1;
+    let yaw = 0;
+    let pitch = 0;
+    const rand = seq();
+    for (let i = 0; i < Math.round(1.5 / STEP); i++) {
+      const r = stepWeapons(l, inp({ fire: i < 3 }), STEP, {}, rand);
+      yaw += r.kick[0];
+      pitch += r.kick[1];
+    }
+    check(`${id}: kick fully recovers after the shot`, [Math.abs(+pitch.toFixed(6)), yaw], [0, 0]);
+  }
 }
 {
   const w = WEAPONS.rifle;

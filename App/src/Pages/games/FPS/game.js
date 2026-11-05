@@ -34,7 +34,10 @@ export function createGame({ map, view, input, getSettings, isPaused, primary })
   // Sniper scope overlay is up once the zoom has mostly settled in.
   const scoped = () => !!activeWeapon(loadout).scope && loadout.ads && zoom < 0.5;
 
-  const eyePos = () => [player.pos[0], player.pos[1] + eyeHeight(player), player.pos[2]];
+  // Shots and throws start where the camera is: `eye` is the eased eye
+  // height the camera uses, not the instant one, so crouching mid-fight
+  // doesn't shift shots away from the crosshair.
+  const eyePos = () => [player.pos[0], player.pos[1] + eye, player.pos[2]];
 
   function fireShot(e) {
     const w = WEAPONS[e.weapon];
@@ -78,12 +81,15 @@ export function createGame({ map, view, input, getSettings, isPaused, primary })
 
       const ctx = { speedFrac: Math.hypot(player.vel[0], player.vel[2]) / WALK_SPEED, airborne: !player.onGround };
       const { events, kick } = stepWeapons(loadout, input.readWeapon(), dt, ctx);
-      look(player, kick[0], -kick[1]);
       for (const e of events) {
         if (e.type === "shot") fireShot(e);
         else if (e.type === "melee") melee(e);
         else if (e.type === "throw") throwGrenade();
       }
+      // Recoil moves the view only after this tick's shots have used the aim
+      // the player saw — otherwise every bullet includes its own kick and
+      // lands above the crosshair (very visible through the sniper scope).
+      look(player, kick[0], -kick[1]);
 
       for (let i = grenades.length - 1; i >= 0; i--) {
         if (stepGrenade(grenades[i], dt, map.boxes)) {

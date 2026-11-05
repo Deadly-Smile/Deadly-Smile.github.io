@@ -12,37 +12,40 @@
 // so tests are deterministic.
 
 // Spread values are cone radii in radians. Damage falls off linearly from
-// falloff[0] m to falloff[1] m, down to falloff[2] × damage.
+// falloff[0] m to falloff[1] m, down to falloff[2] × damage. recoil.recover
+// is the fraction of the pitch kick that drifts back once the trigger is
+// released: all of it for single-shot guns (the crosshair settles back on
+// the target), part of it for automatics (long bursts still climb).
 export const WEAPONS = {
   smg: {
     id: "smg", name: "SMG", slot: 0, kind: "gun", auto: true,
     damage: 20, pellets: 1, rpm: 850, mag: 30, reserve: 120, reload: 1.8, draw: 0.3,
     spread: { hip: 0.045, ads: 0.016, move: 0.03, air: 0.08 }, bloom: 0.005, bloomMax: 0.035,
-    recoil: { pitch: 0.008, yaw: 0.006 }, range: 60, falloff: [12, 35, 0.55], adsZoom: 0.85,
+    recoil: { pitch: 0.008, yaw: 0.006, recover: 0.6 }, range: 60, falloff: [12, 35, 0.55], adsZoom: 0.85,
   },
   rifle: {
     id: "rifle", name: "Assault Rifle", slot: 0, kind: "gun", auto: true,
     damage: 28, pellets: 1, rpm: 600, mag: 30, reserve: 90, reload: 2.2, draw: 0.4,
     spread: { hip: 0.035, ads: 0.006, move: 0.035, air: 0.09 }, bloom: 0.005, bloomMax: 0.035,
-    recoil: { pitch: 0.012, yaw: 0.005 }, range: 100, falloff: [30, 70, 0.7], adsZoom: 0.75,
+    recoil: { pitch: 0.012, yaw: 0.005, recover: 0.6 }, range: 100, falloff: [30, 70, 0.7], adsZoom: 0.75,
   },
   sniper: {
     id: "sniper", name: "Sniper Rifle", slot: 0, kind: "gun", auto: false,
     damage: 95, pellets: 1, rpm: 45, mag: 5, reserve: 20, reload: 3, draw: 0.6,
     spread: { hip: 0.09, ads: 0.0005, move: 0.06, air: 0.15 }, bloom: 0, bloomMax: 0,
-    recoil: { pitch: 0.06, yaw: 0.01 }, range: 200, falloff: [200, 200, 1], adsZoom: 0.25, scope: true,
+    recoil: { pitch: 0.06, yaw: 0, recover: 1 }, range: 200, falloff: [200, 200, 1], adsZoom: 0.25, scope: true,
   },
   shotgun: {
     id: "shotgun", name: "Shotgun", slot: 0, kind: "gun", auto: false,
     damage: 14, pellets: 9, rpm: 70, mag: 6, reserve: 24, reload: 2.6, draw: 0.45,
     spread: { hip: 0.09, ads: 0.065, move: 0.02, air: 0.04 }, bloom: 0, bloomMax: 0,
-    recoil: { pitch: 0.05, yaw: 0.012 }, range: 40, falloff: [6, 20, 0.2], adsZoom: 0.85,
+    recoil: { pitch: 0.05, yaw: 0, recover: 1 }, range: 40, falloff: [6, 20, 0.2], adsZoom: 0.85,
   },
   pistol: {
     id: "pistol", name: "Pistol", slot: 1, kind: "gun", auto: false,
     damage: 25, pellets: 1, rpm: 300, mag: 12, reserve: 48, reload: 1.5, draw: 0.25,
     spread: { hip: 0.025, ads: 0.008, move: 0.02, air: 0.06 }, bloom: 0.006, bloomMax: 0.03,
-    recoil: { pitch: 0.018, yaw: 0.004 }, range: 60, falloff: [15, 40, 0.6], adsZoom: 0.85,
+    recoil: { pitch: 0.018, yaw: 0, recover: 1 }, range: 60, falloff: [15, 40, 0.6], adsZoom: 0.85,
   },
   knife: {
     id: "knife", name: "Knife", slot: 2, kind: "melee",
@@ -63,8 +66,6 @@ export const DEFAULT_PRIMARY = "rifle";
 const BLOOM_DECAY = 0.12;
 // Recoil pitch returns at this rate (rad/s) once the trigger is released.
 const RECOIL_RECOVERY = 0.35;
-// Fraction of each shot's pitch kick that is later recovered.
-const RECOVERABLE = 0.6;
 
 export function createLoadout(primaryId = DEFAULT_PRIMARY) {
   const primary = WEAPONS[primaryId]?.slot === 0 ? primaryId : DEFAULT_PRIMARY;
@@ -210,7 +211,7 @@ export function stepWeapons(l, input, dt, ctx = {}, rand = Math.random) {
         l.firedThisTick = true;
         kickPitch = w.recoil.pitch * (0.85 + rand() * 0.3);
         kickYaw = w.recoil.yaw * (rand() * 2 - 1);
-        l.recoilDebt += kickPitch * RECOVERABLE;
+        l.recoilDebt += kickPitch * w.recoil.recover;
         events.push({ type: "shot", weapon: w.id, pellets, spread });
         if (ammo.mag === 0) startReload(l, events);
       } else if (pressed) {
