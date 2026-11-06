@@ -138,6 +138,18 @@ App/src/Pages/games/FPS/
 
 **Acceptance:** a complete single-player run plays from menu to game over without errors.
 
+#### FPS-8d: Sound (done 2026-11-07)
+- **All synthesised with Web Audio** (`audio.js`), with no audio files. There's one AudioContext per session, created on the first sound after Play and closed on exit.
+- **Your weapon:**
+  - A gunshot per weapon (crack, body thump and tail).
+  - Knife and grenade swish, two reload clicks timed to the reload, a dry-fire click and a draw clack.
+- **Feedback:**
+  - A hit tick (higher for headshots, double for kills), a hurt thud and a falling tone on death.
+  - Pickup blips, and wave start and wave cleared cues.
+- **Footsteps** once per stride: longer when sprinting, quieter when crouched. Bots' footsteps are heard within 25 m.
+- **Positioned sounds** (bot gunfire and footsteps, explosions) are panned by direction, quieter with distance and duller far away or behind (`engine/sound.js`, tested). Nothing plays past 70 m.
+- **Volume slider and Mute** in the pause menu. Muted plays nothing (verified by counting audio nodes in the browser).
+
 #### FPS-8c: HUD polish (done 2026-11-06)
 - **Crosshair:** a centre dot plus four arms. The gap is the weapon's real cone of fire on screen (`engine/hud.js`, tested), so it opens up when moving, jumping or in sustained fire and closes when you settle. It's updated every frame through a CSS variable, not React. Hidden while aiming down sights.
 - **Kill feed:** top right, the last 4 kills for 5 s each. The killer, weapon, headshot mark and victim are coloured by side, and self-kills read "themselves".

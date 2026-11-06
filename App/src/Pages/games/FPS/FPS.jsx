@@ -7,6 +7,7 @@ import { createRenderer } from "./render/renderer.js";
 import { buildMapScene } from "./render/mapScene.js";
 import { createInput } from "./input.js";
 import { createGame } from "./game.js";
+import { createAudio } from "./audio.js";
 import { WEAPONS, PRIMARIES, DEFAULT_PRIMARY } from "./engine/weapons.js";
 import { DIFFICULTIES } from "./engine/ai.js";
 import { loadModels } from "./render/models.js";
@@ -32,6 +33,7 @@ function isTouchOnly() {
 const DEFAULT_SETTINGS = {
   sensitivity: 1, invertY: false, fov: 75, keyTurnSpeed: 2.5,
   quality: DEFAULT_QUALITY, fpsLimit: DEFAULT_FPS_LIMIT, showStats: false,
+  volume: 0.7, muted: false,
 };
 
 function Notice({ title, children }) {
@@ -340,6 +342,7 @@ export default function FPS() {
   const crosshairRef = useRef(null);
   const viewRef = useRef(null);      // renderer/scene/camera for the session
   const inputRef = useRef(null);
+  const audioRef = useRef(null);
   const worldRef = useRef(null);     // what the loop is currently driving
   const mapSceneRef = useRef(null);
   const pausedRef = useRef(true);
@@ -392,6 +395,8 @@ export default function FPS() {
       onLockError: () => setLockFailed(true),
     });
     inputRef.current = input;
+    const audio = createAudio(() => (settingsRef.current.muted ? 0 : settingsRef.current.volume));
+    audioRef.current = audio;
 
     let frames = 0;
     let lastReport = performance.now();
@@ -438,6 +443,8 @@ export default function FPS() {
     return () => {
       loop.stop();
       input.dispose();
+      audio.dispose();
+      audioRef.current = null;
       inputRef.current = null;
       viewRef.current = null;
       view.dispose();
@@ -469,7 +476,7 @@ export default function FPS() {
     const map = getMap(mapId);
     const world = inGame
       ? createGame({
-        map, view, primary, difficulty, models: models ?? null, input: inputRef.current,
+        map, view, primary, difficulty, models: models ?? null, input: inputRef.current, audio: audioRef.current,
         getSettings: () => settingsRef.current, isPaused: () => pausedRef.current,
         onGameOver: (stats) => gameOverRef.current(stats),
       })
@@ -598,6 +605,12 @@ export default function FPS() {
             <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
               <input type="checkbox" checked={s.invertY} onChange={e => updateSetting("invertY", e.target.checked)} />
               Invert mouse Y
+            </label>
+            <Slider label="Volume" value={s.volume} min={0} max={1} step={0.05}
+              onChange={v => updateSetting("volume", v)} format={v => `${Math.round(v * 100)}%`} />
+            <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+              <input type="checkbox" checked={s.muted} onChange={e => updateSetting("muted", e.target.checked)} />
+              Mute
             </label>
             <GraphicsSettings s={s} update={updateSetting} antialiasNow={viewRef.current?.antialias} />
             <div className="text-[11px] text-slate-500 leading-relaxed">

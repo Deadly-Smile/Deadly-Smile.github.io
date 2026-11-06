@@ -35,6 +35,11 @@ const MESSAGE_TIME = 1.5;
 const FEED_TIME = 5;           // s a kill stays in the feed
 const FEED_MAX = 4;
 const DAMAGE_DIR_TIME = 1.2;   // s a damage-direction arc stays up
+// Footsteps: one per stride (m) on the ground; bots are heard within range.
+const STRIDE = { walk: 1.7, sprint: 2.3, crouch: 1.2 };
+const BOT_STEP_RANGE = 25;
+// Silent stand-in when there's no audio (see audio.js for the real thing).
+const NO_AUDIO = new Proxy({}, { get: () => () => {} });
 // Death camera: pulls out to look at the player's body from behind and above.
 const DEATH_CAM_DISTANCE = 3.2;
 const DEATH_CAM_HEIGHT = 1.9;
@@ -47,8 +52,10 @@ function direction(yaw, pitch) {
 }
 
 // `models` is the loaded character/weapon set (render/models.js), or null to
-// use the box figures and guns.
-export function createGame({ map, view, input, getSettings, isPaused, primary, difficulty = "normal", onGameOver, models = null }) {
+// use the box figures and guns. `audio` is the session's sound player
+// (audio.js), or null for silence.
+export function createGame({ map, view, input, getSettings, isPaused, primary, difficulty = "normal", onGameOver, models = null, audio = null }) {
+  const sfx = audio ?? NO_AUDIO;
   const nav = buildNavGraph(map);
   const start = map.playerSpawns[Math.floor(Math.random() * map.playerSpawns.length)];
   // The player is an actor too (id/team/health), so bots and grenades can hurt them.
@@ -94,7 +101,23 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
   // doesn't shift shots away from the crosshair.
   const eyePos = () => [player.pos[0], player.pos[1] + eye, player.pos[2]];
 
-  const say = (text) => { message = { n: message.n + 1, text, left: MESSAGE_TIME }; };
+  // Pickup messages (and their sound).
+  const say = (text) => {
+    message = { n: message.n + 1, text, left: MESSAGE_TIME };
+    sfx.pickup();
+  };
+
+  // One footstep per stride while on the ground and moving.
+  function footsteps(actor, dt, play) {
+    const speed = Math.hypot(actor.vel[0], actor.vel[2]);
+    if (!actor.onGround || speed < 1) return;
+    actor.stepDist = (actor.stepDist ?? 0) + speed * dt;
+    const stride = actor.crouched ? STRIDE.crouch : speed > 5.6 ? STRIDE.sprint : STRIDE.walk;
+    if (actor.stepDist >= stride) {
+      actor.stepDist = 0;
+      play();
+    }
+  }
 
   // Every living bot within `range` of a noise at `pos` hears it.
   function noise(pos, range) {
@@ -130,10 +153,12 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
     }
     if (actor === player) {
       hurtCount++;
+      sfx.hurt();
       const source = from ?? attacker?.pos;
       if (source && attacker !== player) damageFrom = [...damageFrom, { id: ++hudSerial, from: [...source], left: DAMAGE_DIR_TIME }];
       if (killed) {
         overIn = GAME_OVER_DELAY;
+        sfx.death();
         loadout.ads = false;
         player.deadFor = 0;
       }
@@ -153,6 +178,7 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
         if (part === "head") stats.headshots++;
       }
       marker = { n: marker.n + 1, kind: killed ? "kill" : part === "head" ? "head" : "hit" };
+      sfx.hit(marker.kind);
     }
   }
 
@@ -213,6 +239,7 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
   function explode(g) {
     const w = WEAPONS.grenade;
     fx.explosion(g.pos, w.radius);
+    sfx.explosion(g.pos);
     noise(g.pos, HEARING_RANGE.explosion);
     for (const { actor, amount } of explosionDamage(g.pos, w.radius, w.damage, actors(), map.boxes)) {
       hurt(actor, amount, { attacker: player, weapon: "grenade", from: g.pos });
@@ -261,11 +288,15 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
       }
       const { move, weapon } = thinkBot(bot, botWorld, dt);
       stepPlayer(bot, move, dt, map.boxes);
+      if (Math.hypot(bot.pos[0] - player.pos[0], bot.pos[2] - player.pos[2]) < BOT_STEP_RANGE) {
+        footsteps(bot, dt, () => sfx.step(bot.pos, bot.crouched));
+      }
       const ctx = { speedFrac: Math.hypot(bot.vel[0], bot.vel[2]) / WALK_SPEED, airborne: !bot.onGround };
       const { events } = stepWeapons(bot.loadout, weapon, dt, ctx);
       for (const e of events) {
         if (e.type !== "shot") continue;
         shoot(bot, e, eyeOf(bot), { scale: bot.skill.damage, maxHeadshot: BOT_HEADSHOT_CAP });
+        sfx.shot(e.weapon, eyeOf(bot));
         bot.flash = MUZZLE_FLASH;
         bot.firedAgo = 0;
       }
@@ -278,9 +309,15 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
     const alive = bots.filter(b => !b.health.dead).length;
     const spawnReady = !!pickSpawnPoint(map.enemySpawns, player.pos, EYE_HEIGHT, map.boxes);
     for (const e of stepWaves(waves, { alive, spawnReady }, dt)) {
-      if (e.type === "wave") banner = { n: banner.n + 1, text: `Wave ${e.wave}` };
+      if (e.type === "wave") {
+        banner = { n: banner.n + 1, text: `Wave ${e.wave}` };
+        sfx.waveStart();
+      }
       else if (e.type === "spawn") spawnBot(e.config);
-      else if (e.type === "cleared") banner = { n: banner.n + 1, text: `Wave ${e.wave} cleared` };
+      else if (e.type === "cleared") {
+        banner = { n: banner.n + 1, text: `Wave ${e.wave} cleared` };
+        sfx.waveCleared();
+      }
     }
   }
 
@@ -335,6 +372,7 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
       } else {
         const move = input.read();
         stepPlayer(player, { ...move, ads: loadout.ads }, dt, map.boxes);
+        footsteps(player, dt, () => sfx.step(null, player.crouched));
 
         const ctx = { speedFrac: Math.hypot(player.vel[0], player.vel[2]) / WALK_SPEED, airborne: !player.onGround };
         const { events, kick } = stepWeapons(loadout, input.readWeapon(), dt, ctx);
@@ -342,9 +380,17 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
           if (e.type === "shot") {
             shoot(player, e, eyePos());
             viewModel.shot();
+            sfx.shot(e.weapon);
             noise(player.pos, HEARING_RANGE.shot);
-          } else if (e.type === "melee") melee(e);
-          else if (e.type === "throw") throwGrenade();
+          } else if (e.type === "melee") {
+            melee(e);
+            sfx.swish();
+          } else if (e.type === "throw") {
+            throwGrenade();
+            sfx.swish();
+          } else if (e.type === "reload") sfx.reload(e.duration);
+          else if (e.type === "empty") sfx.empty();
+          else if (e.type === "switch") sfx.draw();
         }
         // Recoil moves the view only after this tick's shots have used the aim
         // the player saw — otherwise every bullet includes its own kick and
@@ -406,6 +452,7 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
         prev[2] + (pos[2] - prev[2]) * t,
       );
       camera.rotation.set(player.pitch, player.yaw, dead && !models ? 0.5 : 0, "YXZ");
+      sfx.setListener(player.pos, player.yaw);
       if (dead && models) placeDeathCamera(frameDt);
 
       const dtFx = paused ? 0 : frameDt;
