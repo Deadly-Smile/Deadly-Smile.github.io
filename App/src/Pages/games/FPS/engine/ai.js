@@ -270,7 +270,6 @@ export function thinkBot(bot, world, dt, rand = Math.random) {
   b.stateTime += dt;
   b.jump = false;
   let moveDir = null;
-  let sprint = false;
   let crouch = false;
   let fire = false;
   let lookYaw = bot.yaw;
@@ -376,7 +375,6 @@ export function thinkBot(bot, world, dt, rand = Math.random) {
           if (b.cover !== "none") routeTo(bot, world, b.cover);
         }
         moveDir = b.cover !== "none" ? followPath(bot, world, dt) : null;
-        sprint = !!moveDir;
         crouch = !moveDir;
         break;
       }
@@ -410,7 +408,6 @@ export function thinkBot(bot, world, dt, rand = Math.random) {
       }
       if (!b.path && b.stateTime < dt * 1.5) routeTo(bot, world, b.lastSeen);
       moveDir = followPath(bot, world, dt);
-      sprint = true;
       lookYaw = moveDir ? Math.atan2(-moveDir[0], -moveDir[1]) : yawTo(bot.pos, b.lastSeen);
       if ((!moveDir && b.stateTime > 0.3) || b.stateTime > CHASE_TIMEOUT) setState(b, "search");
       break;
@@ -426,7 +423,9 @@ export function thinkBot(bot, world, dt, rand = Math.random) {
 
   turnToward(bot, lookYaw, lookPitch, d.turnSpeed, dt);
   return {
-    move: { ...keysFor(bot.yaw, moveDir), sprint, crouch, jump: b.jump },
+    // Bots never sprint: at sprint speed the character animations can't keep
+    // their feet on the ground, and a gliding runner looks wrong.
+    move: { ...keysFor(bot.yaw, moveDir), sprint: false, crouch, jump: b.jump },
     weapon: { fire, ads: false, reload: false, slot: null, scroll: 0, lastWeapon: false },
   };
 }
