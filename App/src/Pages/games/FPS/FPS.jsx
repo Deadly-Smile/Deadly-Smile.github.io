@@ -10,6 +10,7 @@ import { createGame } from "./game.js";
 import { WEAPONS, PRIMARIES, DEFAULT_PRIMARY } from "./engine/weapons.js";
 import { DIFFICULTIES } from "./engine/ai.js";
 import { loadModels } from "./render/models.js";
+import { crosshairGap } from "./engine/hud.js";
 import { QUALITY_LEVELS, DEFAULT_QUALITY, FPS_LIMITS, DEFAULT_FPS_LIMIT, IDLE_FPS, qualityOf } from "./engine/quality.js";
 
 // FPS game shell. This module (and three.js with it) is lazy-loaded from
@@ -117,8 +118,69 @@ function ScopeOverlay() {
 
 // One-shot fade used by the hurt flash and hit markers; each new event
 // remounts the element (new React key), which restarts the animation.
-const FADE_KEYFRAMES = "@keyframes fps-fade { from { opacity: 1 } to { opacity: 0 } }";
+const FADE_KEYFRAMES = "@keyframes fps-fade { from { opacity: 1 } to { opacity: 0 } }"
+  + " @keyframes fps-pulse { 0%, 100% { opacity: 0.55 } 50% { opacity: 1 } }";
 const fade = (ms) => ({ animation: `fps-fade ${ms}ms ease-out forwards` });
+
+// Centre dot plus four arms; the gap between them is the weapon's current
+// cone of fire, written straight to the --gap CSS variable every frame by
+// the render loop (see crosshairRef), not through React.
+function Crosshair({ innerRef }) {
+  const arm = (style) => <div className="absolute bg-white/90 ring-1 ring-black/40" style={style} />;
+  return (
+    <div ref={innerRef} className="pointer-events-none absolute left-1/2 top-1/2 w-0 h-0" style={{ "--gap": "4px" }}>
+      <div className="absolute w-1 h-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/90" />
+      {arm({ width: 2, height: 9, left: -1, bottom: "var(--gap)" })}
+      {arm({ width: 2, height: 9, left: -1, top: "var(--gap)" })}
+      {arm({ width: 9, height: 2, top: -1, right: "var(--gap)" })}
+      {arm({ width: 9, height: 2, top: -1, left: "var(--gap)" })}
+    </div>
+  );
+}
+
+// Recent kills, newest last: "You ▸ SWAT · Rifle (headshot)".
+function KillFeed({ feed }) {
+  return (
+    <div className="pointer-events-none absolute top-14 right-4 space-y-1 text-right font-mono text-xs">
+      {feed.map(f => (
+        <div key={f.id} className="rounded bg-black/45 px-2 py-0.5 text-white/90">
+          <span className={f.killer === "You" ? "text-emerald-300" : "text-red-300"}>{f.killer}</span>
+          <span className="text-white/50"> ▸ {f.weapon}{f.headshot ? " ✛" : ""} ▸ </span>
+          <span className={f.victim === "You" ? "text-emerald-300" : "text-red-300"}>
+            {f.victim === f.killer ? "themselves" : f.victim}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// A red arc around the centre pointing at where each recent hit came from
+// (0° ahead, clockwise), fading out.
+function DamageArcs({ damage }) {
+  return damage.map(d => (
+    <div key={d.id} className="pointer-events-none absolute left-1/2 top-1/2 w-0 h-0"
+      style={{ transform: `rotate(${d.angle}deg)` }}>
+      <div className="absolute -translate-x-1/2 rounded-full" style={{
+        ...fade(1200), top: -120, width: 90, height: 7,
+        background: "radial-gradient(ellipse at center, rgba(239,68,68,0.95), rgba(239,68,68,0) 70%)",
+      }} />
+    </div>
+  ));
+}
+
+// Pulsing red edges when health is low, stronger the lower it gets.
+function LowHealth({ hp }) {
+  const k = Math.min(1, (LOW_HP - hp) / LOW_HP);
+  return (
+    <div className="pointer-events-none absolute inset-0" style={{
+      opacity: 0.3 + 0.7 * k,
+      animation: "fps-pulse 1.1s ease-in-out infinite",
+      background: "radial-gradient(ellipse at center, transparent 55%, rgba(127,29,29,0.85) 100%)",
+    }} />
+  );
+}
+const LOW_HP = 35;
 
 function HealthHud({ hp }) {
   const color = hp > 60 ? "bg-emerald-400" : hp > 30 ? "bg-amber-400" : "bg-red-500";
@@ -275,6 +337,7 @@ export default function FPS() {
 
   const mountRef = useRef(null);
   const fpsRef = useRef(null);
+  const crosshairRef = useRef(null);
   const viewRef = useRef(null);      // renderer/scene/camera for the session
   const inputRef = useRef(null);
   const worldRef = useRef(null);     // what the loop is currently driving
@@ -342,6 +405,11 @@ export default function FPS() {
         worldRef.current?.render(alpha, frameDt);
         view.render();
         frames++;
+        const cross = crosshairRef.current && worldRef.current?.crosshair?.();
+        if (cross) {
+          const gap = crosshairGap(cross.spread, cross.fov, mountRef.current.clientHeight);
+          crosshairRef.current.style.setProperty("--gap", `${Math.max(3, Math.min(140, gap)).toFixed(1)}px`);
+        }
         const now = performance.now();
         if (now - lastHud >= HUD_INTERVAL_MS) {
           lastHud = now;
@@ -477,11 +545,10 @@ export default function FPS() {
 
       {inGame && hud?.scoped && <ScopeOverlay />}
 
-      {phase === "playing" && hud && !hud.ads && !hud.dead && (
-        <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-          <div className="w-1.5 h-1.5 rounded-full bg-white/90 ring-1 ring-black/60" />
-        </div>
-      )}
+      {phase === "playing" && hud && !hud.ads && !hud.dead && <Crosshair innerRef={crosshairRef} />}
+      {inGame && hud && !hud.dead && hud.hp < LOW_HP && <LowHealth hp={hud.hp} />}
+      {inGame && hud && !hud.dead && <DamageArcs damage={hud.damage} />}
+      {inGame && hud && hud.feed.length > 0 && <KillFeed feed={hud.feed} />}
 
       {inGame && hud && hud.marker.n > 0 && <HitMarker key={hud.marker.n} kind={hud.marker.kind} />}
       {inGame && hud && hud.hurt > 0 && <HurtFlash key={hud.hurt} />}

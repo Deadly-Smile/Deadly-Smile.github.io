@@ -4,7 +4,8 @@
 // events into rays/projectiles/damage/effects, handles drops and pickups,
 // and places the camera each frame. Death ends the run (`onGameOver`).
 import { createPlayer, stepPlayer, look, eyeHeight, WALK_SPEED } from "./engine/player.js";
-import { createLoadout, stepWeapons, activeWeapon, WEAPONS } from "./engine/weapons.js";
+import { createLoadout, stepWeapons, activeWeapon, currentSpread, WEAPONS } from "./engine/weapons.js";
+import { relativeAngle } from "./engine/hud.js";
 import { createGrenade, stepGrenade } from "./engine/projectile.js";
 import { raycastWorld, EYE_HEIGHT } from "./engine/geometry.js";
 import {
@@ -31,6 +32,9 @@ const CORPSE_TIME = 3;         // s a dead bot stays before it's removed
 const HIT_FLASH = 0.15;
 const MUZZLE_FLASH = 0.06;
 const MESSAGE_TIME = 1.5;
+const FEED_TIME = 5;           // s a kill stays in the feed
+const FEED_MAX = 4;
+const DAMAGE_DIR_TIME = 1.2;   // s a damage-direction arc stays up
 // Death camera: pulls out to look at the player's body from behind and above.
 const DEATH_CAM_DISTANCE = 3.2;
 const DEATH_CAM_HEIGHT = 1.9;
@@ -75,6 +79,10 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
   const stats = { kills: 0, headshots: 0 };
   let hurtCount = 0;
   let marker = { n: 0, kind: "hit" };
+  let feed = [];        // { id, killer, victim, weapon, headshot, left }
+  let damageFrom = [];  // { id, from: [x,y,z], left }
+  let hudSerial = 0;
+  const nameOf = (a) => (a === player ? "You" : "SWAT");
   let message = { n: 0, text: "", left: 0 };
   let banner = { n: 0, text: "" };
 
@@ -110,13 +118,20 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
   }
 
   // Applies damage to any actor. `attacker` drives the hit marker (when it's
-  // the player) and tells a bot where it was shot from.
-  function hurt(actor, amount, { attacker = null, part = "body" } = {}) {
+  // the player) and tells a bot where it was shot from; `weapon` names it in
+  // the kill feed; `from` is where the damage came from (defaults to the
+  // attacker), for the player's damage-direction indicator.
+  function hurt(actor, amount, { attacker = null, part = "body", weapon = null, from = null } = {}) {
     const { dealt, killed } = applyDamage(actor.health, amount);
     if (!dealt) return;
     actor.hitAgo = 0;
+    if (killed && attacker) {
+      feed = [...feed, { id: ++hudSerial, killer: nameOf(attacker), victim: nameOf(actor), weapon, headshot: part === "head", left: FEED_TIME }].slice(-FEED_MAX);
+    }
     if (actor === player) {
       hurtCount++;
+      const source = from ?? attacker?.pos;
+      if (source && attacker !== player) damageFrom = [...damageFrom, { id: ++hudSerial, from: [...source], left: DAMAGE_DIR_TIME }];
       if (killed) {
         overIn = GAME_OVER_DELAY;
         loadout.ads = false;
@@ -154,7 +169,7 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
       let hitPoint = end;
       if (body && (!wall || body.t < wall.t)) {
         hitPoint = origin.map((v, i) => v + d[i] * w.range * body.t);
-        hurt(body.actor, shotDamage(w, body.t * w.range, body.part, maxHeadshot) * scale, { attacker: shooter, part: body.part });
+        hurt(body.actor, shotDamage(w, body.t * w.range, body.part, maxHeadshot) * scale, { attacker: shooter, part: body.part, weapon: e.weapon });
         fx.impact(hitPoint, BLOOD);
       } else if (wall) {
         hitPoint = wall.point;
@@ -178,7 +193,7 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
     const wall = raycastWorld(origin, end, map.boxes);
     const body = raycastActors(origin, end, actors(), player.id);
     if (body && (!wall || body.t < wall.t)) {
-      hurt(body.actor, meleeDamage(WEAPONS.knife, player.yaw, body.actor.yaw), { attacker: player, part: body.part });
+      hurt(body.actor, meleeDamage(WEAPONS.knife, player.yaw, body.actor.yaw), { attacker: player, part: body.part, weapon: "knife" });
       fx.impact(origin.map((v, i) => v + d[i] * e.range * body.t), BLOOD);
     } else if (wall) {
       fx.impact(wall.point);
@@ -200,7 +215,7 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
     fx.explosion(g.pos, w.radius);
     noise(g.pos, HEARING_RANGE.explosion);
     for (const { actor, amount } of explosionDamage(g.pos, w.radius, w.damage, actors(), map.boxes)) {
-      hurt(actor, amount, { attacker: player });
+      hurt(actor, amount, { attacker: player, weapon: "grenade", from: g.pos });
     }
   }
 
@@ -343,6 +358,8 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
       stepBots(dt);
       drops = stepDrops(drops, dt);
       message.left = Math.max(0, message.left - dt);
+      if (feed.length) feed = feed.filter(f => (f.left -= dt) > 0);
+      if (damageFrom.length) damageFrom = damageFrom.filter(d => (d.left -= dt) > 0);
 
       for (let i = grenades.length - 1; i >= 0; i--) {
         if (stepGrenade(grenades[i], dt, map.boxes)) {
@@ -410,6 +427,13 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
       fx.update(dtFx);
     },
 
+    // The crosshair, read every frame (not through the HUD's 10 Hz poll):
+    // the current cone of fire and the field of view it's seen through.
+    crosshair() {
+      const ctx = { speedFrac: Math.hypot(player.vel[0], player.vel[2]) / WALK_SPEED, airborne: !player.onGround };
+      return { spread: currentSpread(loadout, ctx), fov: view.camera.fov };
+    },
+
     // Values for the React HUD (compared as a string, so keep it small).
     hud() {
       const w = activeWeapon(loadout);
@@ -420,6 +444,13 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
         dead: player.health.dead,
         hurt: hurtCount,
         marker,
+        feed: feed.map(({ id, killer, victim, weapon, headshot }) => ({
+          id, killer, victim, headshot, weapon: weapon ? WEAPONS[weapon].name : "",
+        })),
+        // Rounded to 5° so the HUD only re-renders when an arc visibly moves.
+        damage: damageFrom.map(({ id, from }) => ({
+          id, angle: Math.round((relativeAngle(player.pos, player.yaw, from) * 180) / Math.PI / 5) * 5,
+        })),
         score: run.score,
         kills: run.kills,
         wave: waves.wave,

@@ -138,6 +138,12 @@ App/src/Pages/games/FPS/
 
 **Acceptance:** a complete single-player run plays from menu to game over without errors.
 
+#### FPS-8c: HUD polish (done 2026-11-06)
+- **Crosshair:** a centre dot plus four arms. The gap is the weapon's real cone of fire on screen (`engine/hud.js`, tested), so it opens up when moving, jumping or in sustained fire and closes when you settle. It's updated every frame through a CSS variable, not React. Hidden while aiming down sights.
+- **Kill feed:** top right, the last 4 kills for 5 s each. The killer, weapon, headshot mark and victim are coloured by side, and self-kills read "themselves".
+- **Damage-direction arcs:** a red arc around the centre for each hit taken, pointing at its source (the attacker, or the grenade's position). It keeps tracking as you turn and fades over 1.2 s.
+- **Low-HP vignette:** a pulsing red edge below 35 HP that gets stronger as health drops.
+
 #### FPS-8b: Graphics settings and performance (done 2026-11-06)
 - **Graphics: Low / Medium / High** (`engine/quality.js`, tested), in the main menu and the pause menu. It controls:
   - **Render scale:** Low draws at 0.6×.
