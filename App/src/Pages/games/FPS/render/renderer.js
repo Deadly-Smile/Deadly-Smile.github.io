@@ -7,20 +7,25 @@
 // allow a handful of live WebGL contexts per page, so `dispose()` has to
 // release everything: GPU resources, the context itself, and the canvas.
 import * as THREE from "three";
+import { qualityOf, pixelRatio } from "../engine/quality.js";
 
 // Throws if WebGL is unavailable (three's constructor fails to get a context);
-// the caller shows a message instead of the game.
-export function createRenderer(container) {
-  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+// the caller shows a message instead of the game. `quality` (engine/quality.js)
+// fixes anti-aliasing for the context's lifetime; setQuality() changes the
+// rest on the fly.
+export function createRenderer(container, { quality } = {}) {
+  const renderer = new THREE.WebGLRenderer({ antialias: qualityOf(quality).antialias, powerPreference: "high-performance" });
+  renderer.setPixelRatio(pixelRatio(quality, window.devicePixelRatio));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  // Counted over both passes of a frame (see render()), for the stats readout.
+  renderer.info.autoReset = false;
   renderer.domElement.style.display = "block";
   container.appendChild(renderer.domElement);
 
   renderer.autoClear = false;
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 500);
+  const camera = new THREE.PerspectiveCamera(75, 1, 0.1, qualityOf(quality).viewDistance);
   const vmScene = new THREE.Scene();
   const vmCamera = new THREE.PerspectiveCamera(60, 1, 0.01, 10);
   vmScene.add(new THREE.HemisphereLight(0xdfe8ff, 0x303040, 1.6));
@@ -44,7 +49,26 @@ export function createRenderer(container) {
 
   return {
     renderer, scene, camera, vmScene, vmCamera,
+    antialias: qualityOf(quality).antialias,
+    setQuality(level) {
+      const ratio = pixelRatio(level, window.devicePixelRatio);
+      if (ratio !== renderer.getPixelRatio()) {
+        renderer.setPixelRatio(ratio);
+        resize();
+      }
+      const far = qualityOf(level).viewDistance;
+      if (camera.far !== far) {
+        camera.far = far;
+        camera.updateProjectionMatrix();
+      }
+    },
+    // Draw calls and triangles in the last frame, and the resolution drawn.
+    stats() {
+      const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+      return { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, width: size.x, height: size.y };
+    },
     render() {
+      renderer.info.reset();
       renderer.clear();
       renderer.render(scene, camera);
       renderer.clearDepth();

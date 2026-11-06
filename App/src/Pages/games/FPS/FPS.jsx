@@ -10,6 +10,7 @@ import { createGame } from "./game.js";
 import { WEAPONS, PRIMARIES, DEFAULT_PRIMARY } from "./engine/weapons.js";
 import { DIFFICULTIES } from "./engine/ai.js";
 import { loadModels } from "./render/models.js";
+import { QUALITY_LEVELS, DEFAULT_QUALITY, FPS_LIMITS, DEFAULT_FPS_LIMIT, IDLE_FPS, qualityOf } from "./engine/quality.js";
 
 // FPS game shell. This module (and three.js with it) is lazy-loaded from
 // Games.jsx, so nothing here is downloaded until the game is opened.
@@ -27,7 +28,10 @@ function isTouchOnly() {
   return typeof window.matchMedia === "function" && !window.matchMedia("(any-pointer: fine)").matches;
 }
 
-const DEFAULT_SETTINGS = { sensitivity: 1, invertY: false, fov: 75, keyTurnSpeed: 2.5 };
+const DEFAULT_SETTINGS = {
+  sensitivity: 1, invertY: false, fov: 75, keyTurnSpeed: 2.5,
+  quality: DEFAULT_QUALITY, fpsLimit: DEFAULT_FPS_LIMIT, showStats: false,
+};
 
 function Notice({ title, children }) {
   return (
@@ -68,6 +72,27 @@ function createOrbit(map, camera) {
     },
   };
 }
+
+// A row of mutually exclusive buttons.
+function Segmented({ label, options, value, onChange }) {
+  return (
+    <div className="text-sm text-slate-300">
+      <div className="mb-1">{label}</div>
+      <div className="flex gap-1">
+        {options.map(([v, text]) => (
+          <button key={String(v)} onClick={() => onChange(v)}
+            className={`flex-1 px-2 py-1 rounded-md text-xs border capitalize transition-colors ${
+              v === value ? "border-indigo-400 bg-indigo-600/30 text-white" : "border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-500"}`}>
+            {text}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const QUALITY_OPTIONS = QUALITY_LEVELS.map(l => [l, l]);
+const FPS_OPTIONS = FPS_LIMITS.map(f => [f, f ? `${f} fps` : "Unlimited"]);
 
 function Slider({ label, value, min, max, step, onChange, format = (v) => v }) {
   return (
@@ -212,6 +237,24 @@ function WeaponHud({ hud }) {
   );
 }
 
+// Graphics quality, frame limit and the performance readout. Some changes
+// only take effect later: anti-aliasing is fixed when the game is opened,
+// and Low's box figures are picked when a run starts.
+function GraphicsSettings({ s, update, antialiasNow }) {
+  const aaPending = antialiasNow !== undefined && qualityOf(s.quality).antialias !== antialiasNow;
+  return (
+    <div className="space-y-3">
+      <Segmented label="Graphics" options={QUALITY_OPTIONS} value={s.quality} onChange={v => update("quality", v)} />
+      <Segmented label="Frame limit" options={FPS_OPTIONS} value={s.fpsLimit} onChange={v => update("fpsLimit", v)} />
+      <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+        <input type="checkbox" checked={s.showStats} onChange={e => update("showStats", e.target.checked)} />
+        Show performance
+      </label>
+      {aaPending && <p className="text-[11px] text-amber-300">Anti-aliasing changes the next time the game is opened.</p>}
+    </div>
+  );
+}
+
 export default function FPS() {
   const [touchOnly] = useState(isTouchOnly);
   const [error, setError] = useState(null);
@@ -240,6 +283,7 @@ export default function FPS() {
   pausedRef.current = phase !== "playing";
   const settingsRef = useRef(settings);
   settingsRef.current = { ...DEFAULT_SETTINGS, ...settings };
+  const quality = settingsRef.current.quality;
 
   // Run over: record the best score for this map, show the results and give
   // the mouse back so the buttons can be clicked. Read through a ref by the
@@ -270,7 +314,7 @@ export default function FPS() {
     if (touchOnly) return;
     let view;
     try {
-      view = createRenderer(mountRef.current);
+      view = createRenderer(mountRef.current, { quality: settingsRef.current.quality });
     } catch {
       setError("webgl");
       return;
@@ -292,6 +336,8 @@ export default function FPS() {
     let lastHudJson = "";
     const loop = createLoop({
       update: (dt) => worldRef.current?.update(dt),
+      // Menus and the pause screen don't need the full frame rate.
+      maxFps: () => (pausedRef.current ? IDLE_FPS : settingsRef.current.fpsLimit),
       render: (alpha, frameDt) => {
         worldRef.current?.render(alpha, frameDt);
         view.render();
@@ -307,7 +353,13 @@ export default function FPS() {
           }
         }
         if (now - lastReport >= 500) {
-          if (fpsRef.current) fpsRef.current.textContent = `${Math.round(frames * 1000 / (now - lastReport))} fps`;
+          const fps = Math.round(frames * 1000 / (now - lastReport));
+          let text = `${fps} fps`;
+          if (settingsRef.current.showStats) {
+            const st = view.stats();
+            text += `\n${(1000 / Math.max(1, fps)).toFixed(1)} ms · ${st.calls} draws\n${(st.triangles / 1000).toFixed(1)}k tris · ${st.width}×${st.height}`;
+          }
+          if (fpsRef.current) fpsRef.current.textContent = text;
           frames = 0;
           lastReport = now;
         }
@@ -329,13 +381,18 @@ export default function FPS() {
     const view = viewRef.current;
     if (!view) return;
     const map = getMap(mapId);
-    const mapScene = buildMapScene(view.scene, map, buildNavGraph(map));
+    const mapScene = buildMapScene(view.scene, map, buildNavGraph(map), quality);
     mapSceneRef.current = mapScene;
     return () => {
       mapSceneRef.current = null;
       mapScene.dispose();
     };
-  }, [mapId, touchOnly, error]);
+  }, [mapId, quality, touchOnly, error]);
+
+  // Resolution and view distance follow the graphics setting immediately.
+  useEffect(() => {
+    viewRef.current?.setQuality(quality);
+  }, [quality]);
 
   // What the loop drives: an orbiting preview in the menu, the game otherwise.
   useEffect(() => {
@@ -405,7 +462,7 @@ export default function FPS() {
       <div ref={mountRef} className="absolute inset-0" />
 
       <div className="pointer-events-none absolute top-4 right-4 text-right font-mono text-xs text-slate-300">
-        <div ref={fpsRef}>– fps</div>
+        <div ref={fpsRef} className="whitespace-pre-line">– fps</div>
       </div>
 
       {showDebug && (
@@ -475,6 +532,7 @@ export default function FPS() {
               <input type="checkbox" checked={s.invertY} onChange={e => updateSetting("invertY", e.target.checked)} />
               Invert mouse Y
             </label>
+            <GraphicsSettings s={s} update={updateSetting} antialiasNow={viewRef.current?.antialias} />
             <div className="text-[11px] text-slate-500 leading-relaxed">
               {CONTROLS.map(([k, v]) => <div key={k} className="flex justify-between"><span className="font-mono">{k}</span><span>{v}</span></div>)}
             </div>
@@ -514,6 +572,14 @@ export default function FPS() {
               <button key={id} onClick={() => setDifficulty(id)}
                 className={`px-3 py-1 rounded-md text-xs border capitalize transition-colors ${
                   id === difficulty ? "border-indigo-400 bg-indigo-600/30 text-white" : "border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-500"}`}>
+                {id}
+              </button>
+            ))}
+            <span className="text-xs text-slate-400 ml-3 mr-1">Graphics</span>
+            {QUALITY_LEVELS.map(id => (
+              <button key={id} onClick={() => updateSetting("quality", id)}
+                className={`px-3 py-1 rounded-md text-xs border capitalize transition-colors ${
+                  id === quality ? "border-indigo-400 bg-indigo-600/30 text-white" : "border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-500"}`}>
                 {id}
               </button>
             ))}

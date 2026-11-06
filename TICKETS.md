@@ -138,6 +138,19 @@ App/src/Pages/games/FPS/
 
 **Acceptance:** a complete single-player run plays from menu to game over without errors.
 
+#### FPS-8b: Graphics settings and performance (done 2026-11-06)
+- **Graphics: Low / Medium / High** (`engine/quality.js`, tested), in the main menu and the pause menu. It controls:
+  - **Render scale:** Low draws at 0.6×.
+  - **Device pixel ratio cap:** 1× on Low and Medium, 2× on High. On a 2× laptop screen, High draws 4× the pixels of Medium, which was by far the biggest cost in measurements.
+  - **Anti-aliasing:** off on Low. It's fixed when the game opens, and the menu says so.
+  - **Lighting:** Lambert on Low and Medium, physically based on High. The flat-coloured boxes look the same either way.
+  - **Muzzle and explosion flash lights:** off on Low.
+  - **View distance and fog:** 60 / 140 / 400 m.
+  - **Character models:** box figures on Low, chosen per run.
+- **Frame limit:** 30 / 60 / unlimited, 60 by default. The menu, pause and game-over screens are capped at 30. Skipped frames let time build up, so the simulation stays real-time (tested in `loop.test.js`).
+- **"Show performance":** an fps, frame time, draw calls, triangles and resolution readout.
+- **Measured (software renderer, 800×450 at 2× DPR):** Low 15 fps, Medium 8, High 2. Draw calls are about 11 and triangles about 3–4k without characters, so pixel count dominates.
+
 #### FPS-8a: Character and weapon models (added 2026-11-06)
 Replace the box figures and box guns with open-source models. This overrides the original "no downloaded assets" decision, at the user's request.
 

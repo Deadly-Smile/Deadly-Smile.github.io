@@ -132,6 +132,12 @@ export function createEffects(scene, assets = null) {
       t.life = TRACER_LIFE;
       t.line.visible = true;
     },
+    // Low graphics drops the flash lights (they cost every pixel, lit or
+    // not). Toggling them recompiles shaders once, so only on a change.
+    setFlashLights(on) {
+      if (muzzleLight.visible === on) return;
+      muzzleLight.visible = blastLight.visible = on;
+    },
     muzzle(position) {
       muzzleLight.position.set(...position);
       muzzleTime = 0.05;

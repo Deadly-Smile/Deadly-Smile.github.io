@@ -3,9 +3,11 @@
 // material (a handful of draw calls for the whole map, however many boxes),
 // plus one merged line mesh outlining every box so edges stay readable
 // without real-time shadows. Also builds an optional debug overlay showing
-// spawns and the nav grid.
+// spawns and the nav grid. The graphics quality picks the lighting model
+// and how far the fog lets you see.
 import * as THREE from "three";
 import { disposeObject } from "./renderer.js";
+import { qualityOf, fogRange } from "../engine/quality.js";
 
 const unitBox = () => new THREE.BoxGeometry(1, 1, 1);
 
@@ -35,13 +37,17 @@ function floorTexture(color) {
 // Deterministic per-box brightness jitter, so repeated crates aren't identical.
 const jitter = (i) => 0.92 + ((Math.sin(i * 12.9898) * 43758.5453) % 1 + 1) % 1 * 0.16;
 
-export function buildMapScene(scene, map, nav) {
+export function buildMapScene(scene, map, nav, quality) {
   const root = new THREE.Group();
   const { theme } = map;
   const [w, d] = map.size;
+  // Lambert looks the same on flat-coloured boxes and costs far less per
+  // pixel than the physically based Standard material.
+  const Material = qualityOf(quality).lighting === "standard" ? THREE.MeshStandardMaterial : THREE.MeshLambertMaterial;
+  const surface = ({ roughness, ...opts }) => new Material(Material === THREE.MeshStandardMaterial ? { ...opts, roughness } : opts);
 
   scene.background = new THREE.Color(theme.sky);
-  scene.fog = new THREE.Fog(theme.sky, theme.fog[0], theme.fog[1]);
+  scene.fog = new THREE.Fog(theme.sky, ...fogRange(quality, theme.fog));
 
   root.add(new THREE.HemisphereLight(0xdfe8ff, 0x2a2a35, 1.3));
   const sun = new THREE.DirectionalLight(0xfff2dd, 1.6);
@@ -50,7 +56,7 @@ export function buildMapScene(scene, map, nav) {
 
   const tex = floorTexture(theme.floor);
   tex.repeat.set(w / 4, d / 4);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95 }));
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, d), surface({ map: tex, roughness: 0.95 }));
   floor.rotation.x = -Math.PI / 2;
   root.add(floor);
 
@@ -66,7 +72,7 @@ export function buildMapScene(scene, map, nav) {
   const scale = new THREE.Vector3();
   const color = new THREE.Color();
   for (const [mat, list] of byMat) {
-    const mesh = new THREE.InstancedMesh(unitBox(), new THREE.MeshStandardMaterial({ roughness: 0.85 }), list.length);
+    const mesh = new THREE.InstancedMesh(unitBox(), surface({ roughness: 0.85 }), list.length);
     list.forEach(([b, i], k) => {
       pos.set((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2);
       scale.set(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);

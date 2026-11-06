@@ -87,6 +87,22 @@ function fakeEnv() {
   check("stopped", loop.running, false);
 }
 
+// ─── Frame limit ─────────────────────────────────────────────────────────────
+{
+  const env = fakeEnv();
+  let updates = 0, renders = 0, limit = 30;
+  const loop = createLoop({ update: () => updates++, render: () => renders++, maxFps: () => limit, ...env });
+  loop.start();
+  for (let i = 0; i < 60; i++) env.tick(1000 / 120); // half a second of a 120 Hz display
+  check("30 fps cap: about 15 frames drawn in 0.5 s", renders >= 14 && renders <= 16, true);
+  check("…but the simulation still ran ~30 ticks", updates >= 28 && updates <= 31, true);
+  limit = 0;
+  const before = renders;
+  for (let i = 0; i < 12; i++) env.tick(1000 / 120);
+  check("no cap: every display frame is drawn", renders - before, 12);
+  loop.stop();
+}
+
 if (failures) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);

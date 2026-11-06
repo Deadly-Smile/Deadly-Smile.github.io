@@ -20,6 +20,7 @@ import { createEffects } from "./render/effects.js";
 import { createActorMeshes } from "./render/actors.js";
 import { createCharacters } from "./render/characters.js";
 import { createPickupMeshes } from "./render/pickups.js";
+import { qualityOf } from "./engine/quality.js";
 
 // Radians of turn per pixel of mouse movement at sensitivity 1.
 const MOUSE_RADIANS_PER_PX = 0.0022;
@@ -60,7 +61,8 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
   const viewModel = createViewModel(view.vmScene, models);
   const fx = createEffects(view.scene, models);
   const weaponOf = (a) => activeWeapon(a === player ? loadout : a.loadout).id;
-  const figures = models
+  // Low graphics keeps the cheap box figures (chosen per run).
+  const figures = models && qualityOf(getSettings().quality).models
     ? createCharacters(view.scene, models, { modelFor: a => (a.team === "enemy" ? "enemy" : "soldier"), weaponOf })
     : createActorMeshes(view.scene);
   const pickupMeshes = createPickupMeshes(view.scene, models);
@@ -404,6 +406,7 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
       figures.update(dead && models ? [...bots, player] : bots, paused ? 1 : alpha, dtFx);
       pickupMeshes.update(drops, dtFx);
       fx.setGrenades(grenades, t);
+      fx.setFlashLights(qualityOf(settings.quality).flashLights);
       fx.update(dtFx);
     },
 
