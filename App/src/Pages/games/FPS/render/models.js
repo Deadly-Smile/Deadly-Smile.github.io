@@ -27,17 +27,31 @@ const AXES = {
   knife: { forward: new THREE.Vector3(0, 1, 0), up: new THREE.Vector3(1, 0, 0) },
   grenade: { forward: new THREE.Vector3(0, 0, -1), up: new THREE.Vector3(0, 1, 0) },
 };
-// Bone whose position a held weapon follows (three drops the "." from
-// "Wrist.R"). The weapon tracks the hand's position but always points where
-// the character aims: the clips include unarmed runs whose swinging wrists
-// would otherwise wave the gun around.
-const HAND_BONE = "WristR";
-// Grip relative to the wrist, in the character's frame (m): forward into
-// the closed hand.
-const GRIP_OFFSET = new THREE.Vector3(0, -0.02, -0.07);
-// In clips where the arms swing (walk, unarmed run, strafes) the weapon is
-// held at this point relative to the chest instead (m; +x right, -z ahead).
-const CHEST_HOLD = new THREE.Vector3(0.14, -0.28, -0.32);
+// How each weapon is held, in the character's frame (m; +x right, +y up,
+// -z ahead). The weapon hangs off a pivot near the right shoulder and swings
+// about it with the aim pitch; `grip` is where its grip sits from that pivot
+// and `support` how far ahead of the grip the left hand holds it (null:
+// one-handed). Both hands are then placed on it with IK, whatever the legs'
+// clip is doing with the arms. The rig's arms are short (0.42 m), so
+// everything is held close.
+const SHOULDER_PIVOT = new THREE.Vector3(0.14, 0.08, -0.05); // from the chest bone
+const LONG_GUN = { grip: [-0.08, -0.1, -0.18], support: 0.14 };
+const HOLD = {
+  rifle: LONG_GUN,
+  sniper: { ...LONG_GUN, support: 0.16 },
+  shotgun: { ...LONG_GUN, support: 0.16 },
+  smg: { ...LONG_GUN, support: 0.1 },
+  pistol: { grip: [-0.14, 0, -0.34], support: 0 },
+  knife: { grip: [0.04, -0.3, -0.2], support: null },
+  grenade: { grip: [0.04, -0.3, -0.2], support: null },
+};
+// The wrist sits this far behind the grip (the hand reaches forward from it).
+const WRIST_BACK = 0.07;
+// Elbows point down and outward.
+const ELBOW_POLE = { R: new THREE.Vector3(0.5, -1, 0.3), L: new THREE.Vector3(-0.5, -1, 0.3) };
+// Weapon kick on a shot: back by this much (m), settling at this rate (1/s).
+const KICK = 0.045;
+const KICK_SETTLE = 16;
 // The models have no crouch clip: crouching lowers the body by this much (m)
 // and bends the knees forward (two-bone IK) to keep the feet where the clip
 // put them. The rig's feet hang off the root, not the shins.
@@ -179,7 +193,6 @@ export function createCharacterInstance(template) {
 
   // One copy of every weapon, in the character's frame (barrel toward -z,
   // like the game's facing); only the one being held is shown.
-  const hand = scene.getObjectByName(HAND_BONE);
   const inHand = {};
   for (const id of WEAPON_IDS) {
     const w = template.weapons[id].children[0].clone(true);
@@ -189,17 +202,27 @@ export function createCharacterInstance(template) {
     root.add(holder);
     inHand[id] = holder;
   }
-  const handPos = new THREE.Vector3();
-  const bones = {
-    chest: scene.getObjectByName("Chest") ?? scene.getObjectByName("Torso"),
-    body: scene.getObjectByName("Body"),
-    legs: ["L", "R"].map(side => ({
-      upper: scene.getObjectByName(`UpperLeg${side}`),
-      lower: scene.getObjectByName(`LowerLeg${side}`),
-      foot: scene.getObjectByName(`Foot${side}`),
-    })).filter(l => l.upper && l.lower && l.foot),
-  };
-  const crouchRig = bones.body && bones.legs.length === 2 ? createCrouch(root, bones) : null;
+  let held = null;
+
+  const bone = (name) => scene.getObjectByName(name);
+  const limb = (upper, lower, end) => ({ upper: bone(upper), lower: bone(lower), end: bone(end) });
+  const chest = bone("Chest") ?? bone("Torso");
+  const body = bone("Body");
+  const legs = [limb("UpperLegL", "LowerLegL", "FootL"), limb("UpperLegR", "LowerLegR", "FootR")];
+  const arms = { L: limb("UpperArmL", "LowerArmL", "WristL"), R: limb("UpperArmR", "LowerArmR", "WristR") };
+  const complete = (l) => l.upper && l.lower && l.end;
+  const canCrouch = body && legs.every(complete);
+  const canHold = chest && complete(arms.L) && complete(arms.R);
+  const rig = createRig(root, [chest, body, ...legs.flatMap(l => [l.upper, l.lower]),
+    ...Object.values(arms).flatMap(l => [l.upper, l.lower, l.end])].filter(Boolean));
+
+  const pivot = new THREE.Vector3();
+  const grip = new THREE.Vector3();
+  const fwd = new THREE.Vector3();
+  const target = new THREE.Vector3();
+  const pole = new THREE.Vector3();
+  const rootQuat = new THREE.Quaternion();
+  const X = new THREE.Vector3(1, 0, 0);
 
   const mixer = new THREE.AnimationMixer(scene);
   const actions = new Map(template.clips.map(c => [c.name, mixer.clipAction(c)]));
@@ -209,22 +232,45 @@ export function createCharacterInstance(template) {
     actions,
     clipNames: template.clipNames,
     showGun(weaponId) {
-      for (const [id, node] of Object.entries(inHand)) node.visible = id === weaponId;
+      held = weaponId && inHand[weaponId] ? weaponId : null;
+      for (const [id, node] of Object.entries(inHand)) node.visible = id === held;
     },
     // After the mixer has posed the skeleton for this frame: crouch (0..1
-    // bends the legs), lean the chest toward the aim (`pitch`, up
-    // positive), and put the held weapon in the hand — or at the chest when
-    // the clip's arms swing (`followHand` false) — pointing along the aim.
-    finishPose({ pitch = 0, crouch = 0, followHand = true }) {
-      crouchRig?.apply(crouch);
-      bones.chest?.rotateX(-pitch * AIM_LEAN);
+    // bends the legs), lean the chest toward the aim (`pitch`, up positive),
+    // shoulder the held weapon pointing along `weaponPitch` (the aim, or
+    // lower when carried relaxed), and put the hands on it. `kickAgo` is the
+    // time since the last shot (s), for the recoil kick.
+    finishPose({ pitch = 0, weaponPitch = pitch, crouch = 0, kickAgo = Infinity }) {
+      rig.begin();
+      if (crouch && canCrouch) rig.crouch(body, legs, CROUCH_DROP * crouch);
+      chest?.rotateX(-pitch * AIM_LEAN);
       root.updateMatrixWorld(true);
-      if (followHand) root.worldToLocal(hand.getWorldPosition(handPos)).add(GRIP_OFFSET);
-      else root.worldToLocal(bones.chest.getWorldPosition(handPos)).add(CHEST_HOLD);
-      for (const node of Object.values(inHand)) {
-        if (!node.visible) continue;
-        node.position.copy(handPos);
-        node.rotation.set(pitch, 0, 0);
+      if (!held || !canHold) return;
+
+      const hold = HOLD[held];
+      const node = inHand[held];
+      root.worldToLocal(chest.getWorldPosition(pivot)).add(SHOULDER_PIVOT);
+      fwd.set(0, 0, -1).applyAxisAngle(X, weaponPitch);
+      grip.set(...hold.grip).applyAxisAngle(X, weaponPitch).add(pivot)
+        .addScaledVector(fwd, -KICK * Math.exp(-kickAgo * KICK_SETTLE));
+      node.position.copy(grip);
+      node.rotation.set(weaponPitch, 0, 0);
+
+      // Hands: right on the grip, left on the fore-end (or over the right
+      // hand for a pistol); wrists turned to point along the barrel.
+      root.getWorldQuaternion(rootQuat);
+      const reach = (side, local) => {
+        const arm = arms[side];
+        root.localToWorld(target.copy(local));
+        rig.solve(arm, target, pole.copy(ELBOW_POLE[side]).applyQuaternion(rootQuat));
+        rig.aim(arm.end, pole.copy(fwd).applyQuaternion(rootQuat));
+      };
+      reach("R", target.copy(grip).addScaledVector(fwd, -WRIST_BACK));
+      if (hold.support !== null) {
+        target.copy(grip).addScaledVector(fwd, hold.support - WRIST_BACK);
+        target.x -= hold.support ? 0.02 : 0.05;
+        target.y -= hold.support ? 0.03 : 0.02;
+        reach("L", target);
       }
     },
     setFlash(on) {
@@ -237,24 +283,23 @@ export function createCharacterInstance(template) {
   };
 }
 
-// Crouch for a rig without a crouch clip. Each frame, after the clip has
-// posed the skeleton: lower the Body bone, then for each leg solve two-bone
-// IK — thigh and shin keep their lengths, the knee bends forward (the way
-// the character faces), the shin ends at the foot the clip placed. Bones
-// the clip doesn't animate are put back before being changed again, so
-// nothing accumulates frame to frame.
-function createCrouch(root, { body, legs }) {
-  const touched = [body, ...legs.flatMap(l => [l.upper, l.lower])];
-  const saved = new Map();   // bone → { pos, quat } as the clip left it
+// Procedural adjustments on top of the animation clips: two-bone IK for the
+// arms (hands on the weapon) and legs (crouching, for a rig without a
+// crouch clip). The mixer only rewrites a bone when its animated value
+// changes, so begin() first puts back any bone still holding last frame's
+// adjustment — otherwise adjustments would pile up frame after frame.
+function createRig(root, bones) {
+  const saved = new Map();   // bone → { pos, quat } as the clips left it
   const written = new Map(); // bone → { pos, quat } as we left it
   const v = () => new THREE.Vector3();
-  const [H, K, F, P, fwd, dir, bend, knee, cur, want] = Array.from({ length: 10 }, v);
+  const [A, B, E, P, dir, bend, mid, cur, want, fwd] = Array.from({ length: 10 }, v);
   const q = new THREE.Quaternion();
   const pq = new THREE.Quaternion();
   const wq = new THREE.Quaternion();
   const Y = new THREE.Vector3(0, 1, 0);
 
-  // Turn `bone` (world space) so its local +y axis points along `to`.
+  // Turn `bone` (world space) so its local +y axis — the direction these
+  // bones point along — faces `to`.
   const aim = (bone, to) => {
     bone.getWorldQuaternion(wq);
     cur.copy(Y).applyQuaternion(wq).normalize();
@@ -262,12 +307,39 @@ function createCrouch(root, { body, legs }) {
     bone.parent.getWorldQuaternion(pq);
     bone.quaternion.copy(pq.invert().multiply(q.multiply(wq)));
     bone.updateMatrixWorld(true);
+    written.set(bone, { pos: bone.position.clone(), quat: bone.quaternion.clone() });
+  };
+
+  // The two bone lengths of a limb as currently posed.
+  const lengths = ({ upper, lower, end }) => {
+    upper.getWorldPosition(A);
+    lower.getWorldPosition(B);
+    return [A.distanceTo(B), B.distanceTo(end.getWorldPosition(E))];
+  };
+
+  // Bend upper/lower so the limb's end reaches `target` (world), keeping
+  // both bone lengths, with the middle joint pushed toward `poleDir`.
+  const solve = (limb, target, poleDir, [a, b] = lengths(limb)) => {
+    const { upper, lower } = limb;
+    upper.getWorldPosition(A);
+    dir.subVectors(target, A);
+    const d = Math.min(a + b - 1e-4, Math.max(Math.abs(a - b) + 1e-4, dir.length()));
+    dir.normalize();
+    const cosA = (a * a + d * d - b * b) / (2 * a * d);
+    const sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
+    bend.copy(poleDir).addScaledVector(dir, -poleDir.dot(dir)).normalize();
+    mid.copy(A).addScaledVector(dir, a * cosA).addScaledVector(bend, a * sinA);
+    aim(upper, want.subVectors(mid, A).normalize());
+    // Toward the (reachable) point along the line to the target.
+    P.copy(A).addScaledVector(dir, d);
+    aim(lower, want.subVectors(P, lower.getWorldPosition(B)).normalize());
   };
 
   return {
-    apply(amount) {
-      // Restore what the clip didn't overwrite since last frame.
-      for (const b of touched) {
+    aim,
+    solve,
+    begin() {
+      for (const b of bones) {
         const w = written.get(b);
         if (w && b.position.equals(w.pos) && b.quaternion.equals(w.quat)) {
           const s = saved.get(b);
@@ -277,36 +349,21 @@ function createCrouch(root, { body, legs }) {
         saved.set(b, { pos: b.position.clone(), quat: b.quaternion.clone() });
       }
       written.clear();
-      if (!amount) return;
-
+    },
+    // Lower `body` by `drop` (m) and bend each knee forward so the feet stay
+    // where the clip put them.
+    crouch(body, legs, drop) {
       root.updateMatrixWorld(true);
-      // Leg lengths and foot targets, before the body moves.
-      const lengths = legs.map(l => [
-        l.upper.getWorldPosition(H).distanceTo(l.lower.getWorldPosition(K)),
-        K.distanceTo(l.foot.getWorldPosition(F)),
-      ]);
-      const feet = legs.map(l => l.foot.getWorldPosition(v()));
-
-      body.getWorldPosition(P).y -= CROUCH_DROP * amount;
+      // Measured before the body moves: the feet hang off the root, not the
+      // shins, so they stay behind when it drops.
+      const sizes = legs.map(lengths);
+      const feet = legs.map(l => l.end.getWorldPosition(v()));
+      body.getWorldPosition(P).y -= drop;
       body.position.copy(body.parent.worldToLocal(P));
       body.updateMatrixWorld(true);
-
+      written.set(body, { pos: body.position.clone(), quat: body.quaternion.clone() });
       fwd.set(0, 0, -1).applyQuaternion(root.getWorldQuaternion(wq)).setY(0).normalize();
-      legs.forEach((l, i) => {
-        const [a, b] = lengths[i];
-        l.upper.getWorldPosition(H);
-        F.copy(feet[i]);
-        dir.subVectors(F, H);
-        const d = Math.min(a + b - 1e-4, Math.max(Math.abs(a - b) + 1e-4, dir.length()));
-        dir.normalize();
-        const cosA = (a * a + d * d - b * b) / (2 * a * d);
-        const sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
-        bend.copy(fwd).addScaledVector(dir, -fwd.dot(dir)).normalize();
-        knee.copy(H).addScaledVector(dir, a * cosA).addScaledVector(bend, a * sinA);
-        aim(l.upper, want.subVectors(knee, H).normalize());
-        aim(l.lower, want.subVectors(F, l.lower.getWorldPosition(K)).normalize());
-      });
-      for (const b of touched) written.set(b, { pos: b.position.clone(), quat: b.quaternion.clone() });
+      legs.forEach((l, i) => solve(l, feet[i], fwd, sizes[i]));
     },
   };
 }

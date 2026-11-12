@@ -196,6 +196,12 @@ Replace the box figures and box guns with open-source models. This overrides the
 - **First person, drops and grenades:** first-person weapons, dropped guns and grenades (in hand, thrown and dropped) use the weapon models, levelled with barrel forward and the sight line at the top edge.
 - **Death camera:** pulls out to a third-person view of the player's own Soldier body.
 
+- **Movement rework (2026-11-12), for Medium and High graphics:**
+  - **Blended locomotion:** `engine/anim.js` returns a weight per clip instead of picking one. Idle fades into moving with speed, and forward / back / strafe clips blend by direction of travel, so diagonals and turns no longer snap. Weights are eased, the blended clips share one stride phase, and the playback rate keeps the feet planted. In the air the stride freezes.
+  - **Both hands on the weapon:** arms are no longer driven by the clips. The weapon is shouldered at a pivot near the right shoulder and swings with the aim; two-bone IK puts the right hand on the grip and the left on the fore-end (both on the grip for the pistol; knife and grenade are one-handed).
+  - **Smaller touches:** a recoil kick on each shot, bots on patrol carry the weapon lowered, and the body's facing is eased.
+  - Idle_Shoot and Run_Shoot are no longer used.
+
 **Acceptance:** bots and the dead player's body are animated soldiers holding the right gun; first-person, dropped and thrown weapons use the models; hitboxes match the visible head and body; the game still works (box fallback) if the models fail to load; the models download only when the game opens; the CC BY attribution is shown.
 
 ---

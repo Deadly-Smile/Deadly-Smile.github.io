@@ -1,7 +1,7 @@
 // No test framework is configured in this project (see CLAUDE.md) — this is a
-// plain script exercising the character animation chooser. Run with:
+// plain script exercising the character animation blender. Run with:
 //   node src/Pages/games/FPS/engine/anim.test.js
-import { pickClip, moveDirection, rateFor, CLIP_SPEED } from "./anim.js";
+import { blend, localVelocity, CLIP_SPEED } from "./anim.js";
 import { WALK_SPEED, SPRINT_SPEED, CROUCH_SPEED, ADS_SPEED } from "./player.js";
 
 let failures = 0;
@@ -16,51 +16,64 @@ function check(name, actual, expected) {
     console.log(`✓ ${name}`);
   }
 }
+const r = (v, d = 3) => +v.toFixed(d);
 
 // The clips the game's character models carry (see scripts/fps-models).
 const MODEL = new Set(["Idle", "Idle_Shoot", "Walk", "Run", "Run_Back", "Run_Left", "Run_Right", "Run_Shoot", "HitReact", "Death"]);
-const calm = { dead: false, crouched: false, airborne: false, speed: 0, dir: "forward", firedAgo: Infinity, hitAgo: Infinity };
-const clip = (s, has = MODEL) => pickClip({ ...calm, ...s }, has).clip;
+const calm = { dead: false, crouched: false, airborne: false, vel: [0, 0, 0], yaw: 0, hitAgo: Infinity };
+const b = (s, has = MODEL) => blend({ ...calm, ...s }, has);
+const w = (s, has) => Object.fromEntries(Object.entries(b(s, has).weights).map(([k, v]) => [k, r(v)]));
+const sum = (s) => r(Object.values(b(s).weights).reduce((a, x) => a + x, 0));
+// Velocity for a speed and a direction relative to facing yaw 0 (-z ahead).
+const go = (speed, ahead, right = 0) => {
+  const n = Math.hypot(ahead, right);
+  return [(right / n) * speed, 0, (-ahead / n) * speed];
+};
 
 // ─── Direction ───────────────────────────────────────────────────────────────
-check("moving -z facing yaw 0 is forward", moveDirection([0, 0, -3], 0), "forward");
-check("moving +z facing yaw 0 is back", moveDirection([0, 0, 3], 0), "back");
-check("moving +x facing yaw 0 is right", moveDirection([3, 0, 0], 0), "right");
-check("moving -x facing yaw 0 is left", moveDirection([-3, 0, 0], 0), "left");
-check("facing yaw 90° (-x), moving -x is forward", moveDirection([-3, 0, 0], Math.PI / 2), "forward");
-check("the dominant component wins", moveDirection([1, 0, -3], 0), "forward");
+check("moving -z facing yaw 0 is forward", localVelocity([0, 0, -3], 0).map(v => r(v)), [3, 0]);
+check("moving +x facing yaw 0 is to the right", localVelocity([3, 0, 0], 0).map(v => r(v)), [0, 3]);
+check("facing yaw 90° (-x), moving -x is forward", localVelocity([-3, 0, 0], Math.PI / 2).map(v => r(v)), [3, 0]);
 
-// ─── Clips ───────────────────────────────────────────────────────────────────
-check("standing still → Idle", clip({}), "Idle");
-check("just fired → Idle_Shoot", clip({ firedAgo: 0.1 }), "Idle_Shoot");
-check("aiming while moving (slow) → Walk", clip({ speed: ADS_SPEED }), "Walk");
-check("normal movement → Run (natural arm swing)", clip({ speed: WALK_SPEED }), "Run");
-check("running while shooting → Run_Shoot", clip({ speed: WALK_SPEED, firedAgo: 0 }), "Run_Shoot");
-check("sprinting → Run", clip({ speed: SPRINT_SPEED }), "Run");
-check("strafing left → Run_Left", clip({ speed: WALK_SPEED, dir: "left" }), "Run_Left");
-check("strafing right → Run_Right", clip({ speed: WALK_SPEED, dir: "right" }), "Run_Right");
-check("backing away → Run_Back", clip({ speed: WALK_SPEED, dir: "back" }), "Run_Back");
-check("crouched and still → Idle (the legs are bent on top)", clip({ crouched: true }), "Idle");
-check("crouch-walking → Walk", clip({ crouched: true, speed: CROUCH_SPEED }), "Walk");
-check("dead → Death, played once", pickClip({ ...calm, dead: true, speed: 3 }, MODEL), { clip: "Death", timeScale: 1, once: true });
-check("hit while standing → HitReact", clip({ hitAgo: 0.1 }), "HitReact");
-check("hit while running keeps running", clip({ hitAgo: 0.1, speed: SPRINT_SPEED }), "Run");
-check("a slow drift counts as standing", clip({ speed: 0.3 }), "Idle");
+// ─── Standing, walking, running ──────────────────────────────────────────────
+check("standing still → Idle", w({}), { Idle: 1 });
+check("a slow drift is still standing", w({ vel: go(0.2, 1) }), { Idle: 1 });
+check("starting to move fades Idle into the walk", [w({ vel: go(0.75, 1) }).Idle > 0, w({ vel: go(0.75, 1) }).Walk > 0], [true, true]);
+check("aiming while moving (slow) → Walk", w({ vel: go(ADS_SPEED, 1) }), { Walk: 1 });
+check("crouch-walking → Walk (legs are bent on top)", w({ crouched: true, vel: go(CROUCH_SPEED, 1) }), { Walk: 1 });
+check("normal movement → Run", w({ vel: go(WALK_SPEED, 1) }), { Run: 1 });
+check("sprinting → Run", w({ vel: go(SPRINT_SPEED, 1) }), { Run: 1 });
+
+// ─── Direction blending ──────────────────────────────────────────────────────
+check("strafing left → Run_Left", w({ vel: go(WALK_SPEED, 0, -1) }), { Run_Left: 1 });
+check("strafing right → Run_Right", w({ vel: go(WALK_SPEED, 0, 1) }), { Run_Right: 1 });
+check("backing away → Run_Back", w({ vel: go(WALK_SPEED, -1) }), { Run_Back: 1 });
+check("forward-right diagonal → half Run, half Run_Right", w({ vel: go(WALK_SPEED, 1, 1) }), { Run: 0.5, Run_Right: 0.5 });
+check("mostly forward, a little left → mostly Run", w({ vel: go(WALK_SPEED, 3, -1) }), { Run: 0.75, Run_Left: 0.25 });
+check("turning the body changes the mix, not the velocity", w({ vel: [-WALK_SPEED, 0, 0], yaw: Math.PI / 2 }), { Run: 1 });
+check("weights always sum to 1", [sum({}), sum({ vel: go(0.75, 1, 1) }), sum({ vel: go(WALK_SPEED, -2, 1) })], [1, 1, 1]);
+
+// ─── One-shot clips ──────────────────────────────────────────────────────────
+check("dead → Death, once", b({ dead: true, vel: go(3, 1) }), { weights: { Death: 1 }, rate: 1, once: "Death" });
+check("hit while standing → HitReact, once", [w({ hitAgo: 0.1 }), b({ hitAgo: 0.1 }).once], [{ HitReact: 1 }, "HitReact"]);
+check("hit while running keeps running", w({ hitAgo: 0.1, vel: go(WALK_SPEED, 1) }), { Run: 1 });
+check("hit while crouched doesn't stand up to flinch", w({ hitAgo: 0.1, crouched: true }), { Idle: 1 });
+
+// ─── Playback rate: feet keep pace with the ground ───────────────────────────
+check("a clip at its own speed plays at 1×", r(b({ vel: go(CLIP_SPEED.Run + 0.001, 1) }).rate, 2), 1);
+check("faster ground speed → faster legs", r(b({ vel: go(WALK_SPEED, 1) }).rate), r(WALK_SPEED / CLIP_SPEED.Run));
+check("…capped so legs never spin", b({ vel: go(50, 1) }).rate, 1.8);
+check("slow steps slow the legs", r(b({ vel: go(0.9, 1) }).rate), r(0.9 / CLIP_SPEED.Walk));
+check("…but they never crawl", b({ vel: go(0.5, 1) }).rate, 0.6);
+check("a diagonal uses the blended clips' speed", r(b({ vel: go(WALK_SPEED, -1, 1) }).rate), r(WALK_SPEED / ((CLIP_SPEED.Run_Back + CLIP_SPEED.Run_Right) / 2)));
+check("in the air the stride freezes", [b({ airborne: true, vel: go(WALK_SPEED, 1) }).rate, w({ airborne: true, vel: go(WALK_SPEED, 1) })], [0, { Run: 1 }]);
 
 // ─── Fallbacks for models missing clips ──────────────────────────────────────
-const NO_WALK = new Set(["Idle", "Idle_Shoot", "Run", "Run_Shoot", "Death"]);
-const slow = pickClip({ ...calm, speed: CROUCH_SPEED }, NO_WALK);
-check("no Walk clip → the run, slowed down", [slow.clip, slow.timeScale < 1], ["Run", true]);
-check("no strafe clips → forward clips", clip({ speed: WALK_SPEED, dir: "left" }, NO_WALK), "Run");
-check("no plain Run → the aiming run", clip({ speed: SPRINT_SPEED }, new Set(["Idle", "Run_Shoot"])), "Run_Shoot");
-check("only Idle → Idle for everything", [clip({ speed: SPRINT_SPEED }, new Set(["Idle"])), clip({ firedAgo: 0 }, new Set(["Idle"]))], ["Idle", "Idle"]);
-
-// ─── Playback speed: feet keep pace with the ground ──────────────────────────
-check("a clip at its own speed plays at 1×", rateFor("Run", CLIP_SPEED.Run), 1);
-check("faster ground speed → faster legs", rateFor("Run", WALK_SPEED), WALK_SPEED / CLIP_SPEED.Run);
-check("…capped so legs never spin", pickClip({ ...calm, speed: 50 }, MODEL).timeScale, 1.8);
-check("…and never crawl", rateFor("Walk", 0.1), 0.6);
-check("bots' top speed (walk) runs within the cap: feet planted", rateFor("Run", WALK_SPEED) < 1.8, true);
+const BASIC = new Set(["Idle", "Run", "Death"]);
+check("no Walk clip → the run, slowed down", [w({ vel: go(CROUCH_SPEED, 1) }, BASIC), b({ vel: go(CROUCH_SPEED, 1) }, BASIC).rate < 1], [{ Run: 1 }, true]);
+check("no strafe clips → the forward clip", w({ vel: go(WALK_SPEED, 0, -1) }, BASIC), { Run: 1 });
+check("no HitReact → stays idle", w({ hitAgo: 0.1 }, BASIC), { Idle: 1 });
+check("only Idle → Idle for everything", w({ vel: go(SPRINT_SPEED, 1) }, new Set(["Idle"])), { Idle: 1 });
 
 if (failures) {
   console.error(`\n${failures} check(s) failed`);
