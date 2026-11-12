@@ -230,6 +230,16 @@ Replace the box figures and box guns with open-source models. This overrides the
 
 **Acceptance:** two browsers on different networks see each other move smoothly. `protocol.test.js` covers encode/decode round trips and interpolation.
 
+**As built (2026-11-12):**
+- **Flow:** "Host on <map>" in the menu creates a room and drops the host into the map; guests join by code, invite link (`/games/fps?room=CODE`, which pre-fills the code) or the open-room list. Everyone walks the map together as a warm-up; weapons, damage and teams come with FPS-10 and FPS-11. The pause menu shows the room code and a copy-link button, and the game keeps running while it is open.
+- **Files:** `net/protocol.js` (binary commands and snapshots), `net/hostSim.js` (the host's simulation), `net/predict.js` (guest prediction and reconciliation), `net/interp.js` (other players drawn 100 ms in the past), `net/room.js` (PeerJS), `net/session.js` (one interface for host and guest), `netGame.js` (the browser side). All but `room.js`, `session.js` and `netGame.js` are pure and covered by `net/net.test.js`, including a run over a simulated 80 ms, 10%-loss link.
+- **Movement authority:** guests send one numbered command per tick (keys and view angles), repeating the last 3 in each packet. The host applies them with the same `stepPlayer()` and allows about one per tick per player, so sending more doesn't move you faster. Snapshots go out at 20 Hz.
+- **Deviations from the ticket:**
+  - *No truly unreliable channel.* PeerJS never sets `maxRetransmits`, so the state channel is unordered but still retransmitted. Late packets don't hold newer ones back; stale snapshots are dropped by tick number.
+  - *No QR code or scanner.* The game is desktop-only, so a QR code to scan with a phone would lead nowhere. Code, link and room list cover it.
+  - *The player's own position is sent as float64*, not quantised: with float32, a body resting against a wall was rounded into it and prediction diverged (26 corrections in 20 s in the lossy-link test, 0–1 after the change).
+- **Known limits:** the host's game loop stops while its tab is hidden, which freezes the room for everyone. A guest whose tab is hidden just stands still. Host migration is still out of scope.
+
 ### FPS-10: Authoritative combat over the network
 **Depends on:** FPS-9, FPS-5
 

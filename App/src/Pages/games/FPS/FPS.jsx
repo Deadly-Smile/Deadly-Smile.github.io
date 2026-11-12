@@ -7,6 +7,9 @@ import { createRenderer } from "./render/renderer.js";
 import { buildMapScene } from "./render/mapScene.js";
 import { createInput } from "./input.js";
 import { createGame } from "./game.js";
+import { createNetGame } from "./netGame.js";
+import { hostSession, joinSession } from "./net/session.js";
+import { registerOpenRoom, unregisterOpenRoom, fetchOpenRooms } from "../../tools/tk-shared.jsx";
 import { createAudio } from "./audio.js";
 import { WEAPONS, PRIMARIES, DEFAULT_PRIMARY } from "./engine/weapons.js";
 import { DIFFICULTIES } from "./engine/ai.js";
@@ -319,6 +322,38 @@ function GraphicsSettings({ s, update, antialiasNow }) {
   );
 }
 
+const ROOM_HEARTBEAT_MS = 20000;
+const shareLink = (roomId) => `${window.location.origin}/games/fps?room=${roomId}`;
+
+// Top-left during a multiplayer session: room, players, link health.
+function NetHud({ net }) {
+  return (
+    <div className="pointer-events-none absolute top-4 left-4 font-mono text-xs text-white/80 drop-shadow space-y-0.5">
+      <div>Room <span className="text-white font-bold">{net.roomId}</span>{net.role === "guest" && ` · ${net.ping} ms`}</div>
+      {net.players.map(p => (
+        <div key={p.id} className={p.id === net.selfId ? "text-emerald-300" : ""}>
+          {p.name}{p.id === 0 && " (host)"}
+        </div>
+      ))}
+      {net.stalled && <div className="text-amber-300">Host not responding…</div>}
+      <div className="text-white/50 pt-1">Warm-up · weapons come online later</div>
+    </div>
+  );
+}
+
+function CopyLink({ roomId }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => navigator.clipboard?.writeText(shareLink(roomId)).then(() => {
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }).catch(() => {});
+  return (
+    <button onClick={copy} className="w-full py-1.5 rounded-lg bg-slate-800 border border-slate-700 hover:border-slate-500 text-sm text-slate-200">
+      {copied ? "✓ Link copied" : "Copy invite link"}
+    </button>
+  );
+}
+
 export default function FPS() {
   const [touchOnly] = useState(isTouchOnly);
   const [error, setError] = useState(null);
@@ -336,6 +371,18 @@ export default function FPS() {
   // Character/weapon models: undefined while loading, null if they failed
   // (the game then uses its box figures), the loaded set otherwise.
   const [models, setModels] = useState(undefined);
+  // Multiplayer: the live session (net/session.js) or null, what the lobby
+  // is doing ("Creating room…"), and why the last attempt/session ended.
+  const [net, setNet] = useState(null);
+  const [netBusy, setNetBusy] = useState(null);
+  const [netError, setNetError] = useState(null);
+  const [playerName, setPlayerName] = usePersistentState("game:fps:name", "Player");
+  // An invite link (/games/fps?room=CODE) pre-fills the code to join.
+  const [joinCode, setJoinCode] = useState(() => (new URLSearchParams(window.location.search).get("room") ?? "").toUpperCase());
+  const [openRooms, setOpenRooms] = useState([]);
+  const netRef = useRef(null);
+  netRef.current = net;
+  const heartbeatRef = useRef(null);
 
   const mountRef = useRef(null);
   const fpsRef = useRef(null);
@@ -350,6 +397,9 @@ export default function FPS() {
   const settingsRef = useRef(settings);
   settingsRef.current = { ...DEFAULT_SETTINGS, ...settings };
   const quality = settingsRef.current.quality;
+  // A guest plays the map the host chose, whatever is selected here.
+  const activeMapId = net?.mapId ?? mapId;
+  const ready = models !== undefined;
 
   // Run over: record the best score for this map, show the results and give
   // the mouse back so the buttons can be clicked. Read through a ref by the
@@ -455,14 +505,14 @@ export default function FPS() {
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    const map = getMap(mapId);
+    const map = getMap(activeMapId);
     const mapScene = buildMapScene(view.scene, map, buildNavGraph(map), quality);
     mapSceneRef.current = mapScene;
     return () => {
       mapSceneRef.current = null;
       mapScene.dispose();
     };
-  }, [mapId, quality, touchOnly, error]);
+  }, [activeMapId, quality, touchOnly, error]);
 
   // Resolution and view distance follow the graphics setting immediately.
   useEffect(() => {
@@ -473,14 +523,17 @@ export default function FPS() {
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    const map = getMap(mapId);
-    const world = inGame
-      ? createGame({
-        map, view, primary, difficulty, models: models ?? null, input: inputRef.current, audio: audioRef.current,
-        getSettings: () => settingsRef.current, isPaused: () => pausedRef.current,
-        onGameOver: (stats) => gameOverRef.current(stats),
-      })
-      : createOrbit(map, view.camera);
+    const map = getMap(activeMapId);
+    const common = {
+      map, view, models: models ?? null, input: inputRef.current,
+      getSettings: () => settingsRef.current, isPaused: () => pausedRef.current,
+    };
+    const world = !inGame ? createOrbit(map, view.camera)
+      : net ? createNetGame({ ...common, session: net })
+        : createGame({
+          ...common, primary, difficulty, audio: audioRef.current,
+          onGameOver: (stats) => gameOverRef.current(stats),
+        });
     worldRef.current = world;
     if (!inGame) {
       view.camera.fov = DEFAULT_SETTINGS.fov;
@@ -490,11 +543,69 @@ export default function FPS() {
       worldRef.current = null;
       world.dispose?.();
     };
-  }, [mapId, inGame, primary, difficulty, session, models, touchOnly, error]);
+  }, [activeMapId, inGame, net, primary, difficulty, session, models, touchOnly, error]);
 
   useEffect(() => {
     mapSceneRef.current?.setDebug(showDebug);
-  }, [showDebug, mapId]);
+  }, [showDebug, activeMapId]);
+
+  // Leaving the game (or the page) closes the room / the link.
+  useEffect(() => () => {
+    clearInterval(heartbeatRef.current);
+    const s = netRef.current;
+    if (s?.role === "host") unregisterOpenRoom(s.roomId);
+    s?.close();
+  }, []);
+
+  // Rooms whose hosts are waiting, when the directory is configured.
+  useEffect(() => {
+    if (phase !== "menu" || touchOnly) return;
+    let live = true;
+    fetchOpenRooms("fps").then(rooms => { if (live) setOpenRooms(rooms); });
+    return () => { live = false; };
+  }, [phase, touchOnly]);
+
+  const enterNet = (s) => {
+    setNet(s);
+    setNetBusy(null);
+    setResult(null);
+    setPhase("paused");          // becomes "playing" once the lock is granted
+    inputRef.current?.lock();
+  };
+  const leaveNet = (reason = null) => {
+    clearInterval(heartbeatRef.current);
+    const s = netRef.current;
+    if (s?.role === "host") unregisterOpenRoom(s.roomId);
+    s?.close();
+    inputRef.current?.unlock();
+    setNet(null);
+    setNetBusy(null);
+    setNetError(reason);
+    setPhase("menu");
+  };
+  const hostGame = async () => {
+    setNetError(null);
+    setNetBusy("Creating room…");
+    try {
+      const s = await hostSession({ map: getMap(mapId), name: playerName, onRoster: () => {} });
+      registerOpenRoom(s.roomId, "fps");
+      heartbeatRef.current = setInterval(() => registerOpenRoom(s.roomId, "fps"), ROOM_HEARTBEAT_MS);
+      enterNet(s);
+    } catch {
+      setNetBusy(null);
+      setNetError("Couldn't create a room. Check your connection and try again.");
+    }
+  };
+  const joinGame = async (code) => {
+    setNetError(null);
+    setNetBusy("Joining…");
+    try {
+      enterNet(await joinSession({ roomId: code, name: playerName, onRoster: () => {}, onClosed: (reason) => leaveNet(reason) }));
+    } catch (e) {
+      setNetBusy(null);
+      setNetError(e?.message ?? "Couldn't join that room.");
+    }
+  };
 
   const play = () => {
     setLockFailed(false);
@@ -508,6 +619,7 @@ export default function FPS() {
     inputRef.current?.lock();
   };
   const quit = () => {
+    if (netRef.current) return leaveNet();
     inputRef.current?.unlock();
     setResult(null);
     setPhase("menu");
@@ -529,7 +641,10 @@ export default function FPS() {
     );
   }
 
-  const current = getMap(mapId);
+  const current = getMap(activeMapId);
+  // The survival HUD and the multiplayer HUD are different shapes.
+  const netHud = hud?.net ?? null;
+  const solo = hud && !hud.net ? hud : null;
   const s = settingsRef.current;
   return (
     <div className="relative h-full w-full overflow-hidden bg-slate-950 select-none">
@@ -550,36 +665,40 @@ export default function FPS() {
         </div>
       )}
 
-      {inGame && hud?.scoped && <ScopeOverlay />}
+      {inGame && solo?.scoped && <ScopeOverlay />}
 
-      {phase === "playing" && hud && !hud.ads && !hud.dead && <Crosshair innerRef={crosshairRef} />}
-      {inGame && hud && !hud.dead && hud.hp < LOW_HP && <LowHealth hp={hud.hp} />}
-      {inGame && hud && !hud.dead && <DamageArcs damage={hud.damage} />}
-      {inGame && hud && hud.feed.length > 0 && <KillFeed feed={hud.feed} />}
+      {phase === "playing" && solo && !solo.ads && !solo.dead && <Crosshair innerRef={crosshairRef} />}
+      {inGame && solo && !solo.dead && solo.hp < LOW_HP && <LowHealth hp={solo.hp} />}
+      {inGame && solo && !solo.dead && <DamageArcs damage={solo.damage} />}
+      {inGame && solo && solo.feed.length > 0 && <KillFeed feed={solo.feed} />}
 
-      {inGame && hud && hud.marker.n > 0 && <HitMarker key={hud.marker.n} kind={hud.marker.kind} />}
-      {inGame && hud && hud.hurt > 0 && <HurtFlash key={hud.hurt} />}
-      {inGame && hud && !hud.dead && <WeaponHud hud={hud} />}
-      {inGame && hud && !hud.dead && <HealthHud hp={hud.hp} />}
-      {inGame && hud && (
+      {inGame && solo && solo.marker.n > 0 && <HitMarker key={solo.marker.n} kind={solo.marker.kind} />}
+      {inGame && solo && solo.hurt > 0 && <HurtFlash key={solo.hurt} />}
+      {inGame && solo && !solo.dead && <WeaponHud hud={solo} />}
+      {inGame && solo && !solo.dead && <HealthHud hp={solo.hp} />}
+      {inGame && solo && (
         <div className="pointer-events-none absolute top-4 left-4 font-mono text-sm text-white/80 drop-shadow">
-          <div>Score <span className="text-white font-bold">{hud.score}</span></div>
-          <div>Kills <span className="text-white font-bold">{hud.kills}</span></div>
+          <div>Score <span className="text-white font-bold">{solo.score}</span></div>
+          <div>Kills <span className="text-white font-bold">{solo.kills}</span></div>
         </div>
       )}
-      {inGame && hud && !hud.dead && <WaveHud hud={hud} />}
-      {inGame && hud && hud.banner.n > 0 && <Banner key={hud.banner.n} text={hud.banner.text} />}
-      {inGame && hud?.message && (
-        <div key={hud.message.n} className="pointer-events-none absolute left-1/2 bottom-28 -translate-x-1/2 font-mono text-sm text-emerald-300 drop-shadow" style={fade(1500)}>
-          {hud.message.text}
+      {inGame && solo && !solo.dead && <WaveHud hud={solo} />}
+      {inGame && solo && solo.banner.n > 0 && <Banner key={solo.banner.n} text={solo.banner.text} />}
+      {inGame && solo?.message && (
+        <div key={solo.message.n} className="pointer-events-none absolute left-1/2 bottom-28 -translate-x-1/2 font-mono text-sm text-emerald-300 drop-shadow" style={fade(1500)}>
+          {solo.message.text}
         </div>
       )}
-      {phase === "playing" && hud?.prompt && (
+      {phase === "playing" && solo?.prompt && (
         <div className="pointer-events-none absolute left-1/2 top-[58%] -translate-x-1/2 rounded bg-black/50 px-3 py-1 font-mono text-sm text-white">
-          {hud.prompt}
+          {solo.prompt}
         </div>
       )}
-      {phase !== "over" && hud?.dead && <DeathOverlay />}
+      {phase !== "over" && solo?.dead && <DeathOverlay />}
+      {inGame && netHud && <NetHud net={netHud} />}
+      {phase === "playing" && netHud && (
+        <div className="pointer-events-none absolute left-1/2 top-1/2 w-1 h-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/90" />
+      )}
       {phase === "over" && result && (
         <GameOver result={result} mapName={current.name} onAgain={play} onQuit={quit} />
       )}
@@ -587,7 +706,15 @@ export default function FPS() {
       {phase === "paused" && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60">
           <div className="w-80 max-h-full overflow-y-auto rounded-xl bg-slate-900 border border-slate-700 p-5 space-y-4">
-            <h2 className="text-xl font-bold text-white text-center">Paused</h2>
+            <h2 className="text-xl font-bold text-white text-center">{net ? "Menu" : "Paused"}</h2>
+            {net && (
+              <div className="rounded-lg bg-slate-800/70 border border-slate-700 p-3 space-y-2 text-center">
+                <div className="text-xs text-slate-400">Room code</div>
+                <div className="font-mono text-2xl tracking-widest text-white">{net.roomId}</div>
+                <CopyLink roomId={net.roomId} />
+                <div className="text-[11px] text-slate-500">The game keeps running while this menu is open.</div>
+              </div>
+            )}
             <button onClick={resume} className="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">
               Resume
             </button>
@@ -617,7 +744,7 @@ export default function FPS() {
               {CONTROLS.map(([k, v]) => <div key={k} className="flex justify-between"><span className="font-mono">{k}</span><span>{v}</span></div>)}
             </div>
             <button onClick={quit} className="w-full py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200">
-              Quit to menu
+              {net ? (net.role === "host" ? "Close room" : "Leave room") : "Quit to menu"}
             </button>
           </div>
         </div>
@@ -678,6 +805,31 @@ export default function FPS() {
               className="px-6 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:text-slate-400 text-white font-semibold">
               {models === undefined ? "Loading models…" : `Play ${current.name}`}
             </button>
+          </div>
+          <div className="mt-3 pt-3 border-t border-slate-700/70 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-slate-400 mr-1">Multiplayer</span>
+            <input value={playerName} onChange={e => setPlayerName(e.target.value.slice(0, 16))} placeholder="Name" aria-label="Your name"
+              className="w-28 px-2 py-1 rounded-md bg-slate-800 border border-slate-700 text-xs text-white" />
+            <button onClick={hostGame} disabled={ready === false || !!netBusy}
+              className="px-3 py-1 rounded-md text-xs border border-slate-600 bg-slate-800 text-white hover:border-indigo-400 disabled:opacity-50">
+              Host on {getMap(mapId).name}
+            </button>
+            <span className="text-xs text-slate-500">or</span>
+            <input value={joinCode} onChange={e => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10))}
+              placeholder="Room code" aria-label="Room code"
+              className="w-28 px-2 py-1 rounded-md bg-slate-800 border border-slate-700 text-xs font-mono text-white" />
+            <button onClick={() => joinGame(joinCode)} disabled={ready === false || !!netBusy || joinCode.length < 4}
+              className="px-3 py-1 rounded-md text-xs border border-slate-600 bg-slate-800 text-white hover:border-indigo-400 disabled:opacity-50">
+              Join
+            </button>
+            {openRooms.map(r => (
+              <button key={r.roomId} onClick={() => joinGame(r.roomId)} disabled={ready === false || !!netBusy}
+                className="px-3 py-1 rounded-md text-xs border border-emerald-700 bg-emerald-900/30 text-emerald-200 hover:border-emerald-400 disabled:opacity-50">
+                Open room {r.roomId}
+              </button>
+            ))}
+            {netBusy && <span className="text-xs text-slate-300">{netBusy}</span>}
+            {netError && <span className="text-xs text-amber-300">{netError}</span>}
           </div>
           {/* Required attribution for the CC BY model (details in public/fps/models/CREDITS.md). */}
           <div className="mt-2 text-[10px] text-slate-500">
