@@ -2,6 +2,7 @@
 // plain script exercising the map geometry, nav grid and validator. Run with:
 //   node src/Pages/games/FPS/maps/maps.test.js
 import { MAPS, getMap } from "./index.js";
+import { fromAscii } from "./ascii.js";
 import { box, stairs, perimeter, spawn, mirrorX } from "./build.js";
 import { validateMap } from "./validate.js";
 import { buildNavGraph, nearestNode } from "../engine/nav.js";
@@ -90,6 +91,38 @@ function check(name, actual, expected) {
   check("visible enemy spawn is flagged", validateMap(visible).some(e => /enemy spawn 4 is visible/.test(e)), true);
   const unknownMat = { ...good, boxes: [...good.boxes, box(0, 18, 1, 1, 1, { mat: "nope" })] };
   check("unknown material is flagged", validateMap(unknownMat).some(e => /unknown material/.test(e)), true);
+}
+
+// ─── ASCII maps ──────────────────────────────────────────────────────────────
+{
+  const legend = { "#": { h: 3, mat: "wall" }, c: { h: 1, mat: "crate" } };
+  const m = fromAscii([
+    "#####",
+    "#.P.#",
+    "#cc.#",
+    "#cc.#",
+    "#E.a#",
+  ], legend, 2);
+  check("size from the grid and cell size", m.size, [10, 10]);
+  check("same-character cells merge into one box", m.boxes.filter(b => b.mat === "crate").length, 1);
+  const crate = m.boxes.find(b => b.mat === "crate");
+  check("the merged crate covers its 2×2 cells", [crate.min, crate.max], [[-3, 0, -1], [1, 1, 3]]);
+  check("row 0 is the north (-z) edge", m.boxes.some(b => b.mat === "wall" && b.min[2] === -5 && b.max[0] - b.min[0] === 10), true);
+  check("spawns land on cell centres, on the floor", m.spawns.player[0].pos, [0, 0, -2]);
+  check("enemies face south, the player north", [m.spawns.enemy[0].yaw, m.spawns.player[0].yaw], [Math.PI, 0]);
+  check("team spawns are read too", m.spawns.a.length, 1);
+  let threw = false;
+  try { fromAscii(["##", "#"], legend); } catch { threw = true; }
+  check("ragged rows are rejected", threw, true);
+}
+{
+  // The tactical maps are mostly buildings: under half the area is open floor.
+  const open = (id) => {
+    const map = getMap(id);
+    return buildNavGraph(map).nodes.filter(n => n.y === 0).length / (map.size[0] * map.size[1]);
+  };
+  check("Old Quarter is tight", open("quarter") < 0.5, true);
+  check("…tighter than the open Freight Yard", open("quarter") < open("yard"), true);
 }
 
 // ─── Every shipped map ───────────────────────────────────────────────────────

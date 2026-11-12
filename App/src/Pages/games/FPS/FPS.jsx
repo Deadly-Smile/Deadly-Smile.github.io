@@ -630,7 +630,7 @@ export default function FPS() {
               <button
                 key={m.id}
                 onClick={() => setMapId(m.id)}
-                className={`flex-1 min-w-[9rem] text-left rounded-lg px-3 py-2 border transition-colors ${
+                className={`flex-1 min-w-[7.5rem] text-left rounded-lg px-3 py-2 border transition-colors ${
                   m.id === current.id ? "border-indigo-400 bg-indigo-600/30 text-white" : "border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-500"}`}
               >
                 <div className="font-semibold text-sm">{m.name}</div>

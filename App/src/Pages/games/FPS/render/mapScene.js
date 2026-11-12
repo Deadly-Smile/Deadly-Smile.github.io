@@ -3,35 +3,29 @@
 // material (a handful of draw calls for the whole map, however many boxes),
 // plus one merged line mesh outlining every box so edges stay readable
 // without real-time shadows. Also builds an optional debug overlay showing
-// spawns and the nav grid. The graphics quality picks the lighting model
-// and how far the fog lets you see.
+// spawns and the nav grid. Surfaces get procedural textures mapped in world
+// space (textures.js); the graphics quality picks the lighting model and how
+// far the fog lets you see.
 import * as THREE from "three";
 import { disposeObject } from "./renderer.js";
 import { qualityOf, fogRange } from "../engine/quality.js";
+import { makeTexture, worldMapped } from "./textures.js";
 
 const unitBox = () => new THREE.BoxGeometry(1, 1, 1);
 
-// Small procedural tile texture so the floor gives a sense of speed and
-// distance (no image files to ship).
-function floorTexture(color) {
-  const size = 64;
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = size;
-  const g = canvas.getContext("2d");
-  const base = new THREE.Color(color);
-  g.fillStyle = `#${base.getHexString()}`;
-  g.fillRect(0, 0, size, size);
-  g.fillStyle = `#${base.clone().multiplyScalar(0.82).getHexString()}`;
-  g.fillRect(0, 0, size / 2, size / 2);
-  g.fillRect(size / 2, size / 2, size / 2, size / 2);
-  g.strokeStyle = `#${base.clone().multiplyScalar(0.6).getHexString()}`;
-  g.lineWidth = 2;
-  g.strokeRect(0, 0, size, size);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.anisotropy = 4;
-  return tex;
+// Texture for a material: the theme can name one (theme.tex), otherwise it's
+// guessed from the material's name, so older maps get textures too.
+function textureKind(theme, mat) {
+  const named = theme.tex?.[mat];
+  if (named) return named;
+  if (/crate|wood|pallet/.test(mat)) return "wood";
+  if (/metal|car|container|cladding/.test(mat)) return "corrugated";
+  if (/brick/.test(mat)) return "brick";
+  if (/stone/.test(mat)) return "stone";
+  if (/rack|shelf/.test(mat)) return "rack";
+  if (/concrete|low|pillar|barrier|roof/.test(mat)) return "concrete";
+  if (/wall|plaster/.test(mat)) return "plaster";
+  return "plain";
 }
 
 // Deterministic per-box brightness jitter, so repeated crates aren't identical.
@@ -41,10 +35,15 @@ export function buildMapScene(scene, map, nav, quality) {
   const root = new THREE.Group();
   const { theme } = map;
   const [w, d] = map.size;
-  // Lambert looks the same on flat-coloured boxes and costs far less per
+  // Lambert looks nearly the same on these surfaces and costs far less per
   // pixel than the physically based Standard material.
   const Material = qualityOf(quality).lighting === "standard" ? THREE.MeshStandardMaterial : THREE.MeshLambertMaterial;
-  const surface = ({ roughness, ...opts }) => new Material(Material === THREE.MeshStandardMaterial ? { ...opts, roughness } : opts);
+  const textures = new Map(); // kind → texture (shared, disposed with the map)
+  const surface = (kind, opts = {}) => {
+    if (!textures.has(kind)) textures.set(kind, makeTexture(kind));
+    const m = new Material(Material === THREE.MeshStandardMaterial ? { roughness: 0.9, ...opts } : opts);
+    return worldMapped(m, textures.get(kind));
+  };
 
   scene.background = new THREE.Color(theme.sky);
   scene.fog = new THREE.Fog(theme.sky, ...fogRange(quality, theme.fog));
@@ -54,15 +53,15 @@ export function buildMapScene(scene, map, nav, quality) {
   sun.position.set(w * 0.3, 40, d * 0.2);
   root.add(sun);
 
-  const tex = floorTexture(theme.floor);
-  tex.repeat.set(w / 4, d / 4);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, d), surface({ map: tex, roughness: 0.95 }));
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, d), surface(theme.floorTex ?? "paving", { color: theme.floor }));
   floor.rotation.x = -Math.PI / 2;
   root.add(floor);
 
-  // One InstancedMesh per material.
+  // One InstancedMesh per material, for the solid boxes and the visual-only
+  // decor (e.g. a hall's roof) alike.
+  const all = [...map.boxes, ...(map.decor ?? [])];
   const byMat = new Map();
-  map.boxes.forEach((b, i) => {
+  all.forEach((b, i) => {
     if (!byMat.has(b.mat)) byMat.set(b.mat, []);
     byMat.get(b.mat).push([b, i]);
   });
@@ -72,7 +71,7 @@ export function buildMapScene(scene, map, nav, quality) {
   const scale = new THREE.Vector3();
   const color = new THREE.Color();
   for (const [mat, list] of byMat) {
-    const mesh = new THREE.InstancedMesh(unitBox(), surface({ roughness: 0.85 }), list.length);
+    const mesh = new THREE.InstancedMesh(unitBox(), surface(textureKind(theme, mat)), list.length);
     list.forEach(([b, i], k) => {
       pos.set((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2);
       scale.set(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
@@ -96,6 +95,7 @@ export function buildMapScene(scene, map, nav, quality) {
     dispose() {
       scene.remove(root);
       disposeObject(root);
+      for (const t of textures.values()) t.dispose();
       scene.background = null;
       scene.fog = null;
     },
@@ -116,7 +116,7 @@ function buildOutlines(boxes) {
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
-  return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 }));
+  return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.18 }));
 }
 
 const SPAWN_COLORS = { player: 0x22c55e, enemy: 0xef4444, a: 0x3b82f6, b: 0xf97316 };

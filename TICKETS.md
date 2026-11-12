@@ -138,6 +138,15 @@ App/src/Pages/games/FPS/
 
 **Acceptance:** a complete single-player run plays from menu to game over without errors.
 
+#### FPS-8e: Tactical maps and textures (done 2026-11-12)
+Asked for maps "like CS:GO or deadshot.io": more realistic and less open. The layouts are original; no existing game's map is copied.
+
+- **ASCII map format** (`maps/ascii.js`, tested): a map is drawn as a text grid, 2 m per cell, with a legend of heights and materials. Neighbouring cells of the same kind merge into as few boxes as possible, and spawns are letters in the grid.
+- **Old Quarter:** a three-lane town map. Two walled courtyards, a long west lane, a middle street with a choke doorway and side connectors, a tight east alley, and buildings everywhere else.
+- **Warehouse:** a roofed hall with shelf aisles and a cross aisle, an office block with rooms and doorways, three loading doors, and a truck yard with a raised dock. The roof is visual only (`decor`), so it doesn't affect movement, bots or bullets.
+- **Procedural textures** (`render/textures.js`): plaster, stone, brick, concrete, wood, corrugated metal, paving and shelving, drawn on canvases at runtime with no downloads. They are mapped in world space, so they keep their real size on every box and line up across boxes, and wall bases are darkened slightly. The older maps get textures too, chosen from their material names.
+- Both new maps come first in the map list. The menu's map buttons were narrowed so five fit in one row.
+
 #### FPS-8d: Sound (done 2026-11-07)
 - **All synthesised with Web Audio** (`audio.js`), with no audio files. There's one AudioContext per session, created on the first sound after Play and closed on exit.
 - **Your weapon:**
