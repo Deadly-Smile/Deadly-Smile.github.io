@@ -1,3 +1,4 @@
+import { lazy, Suspense, useEffect, useState } from "react";
 import { navigate, useDocumentTitle } from "../Utils/router";
 import { Redirect } from "../Utils/Link";
 import Breakout from "./games/Breakout";
@@ -13,6 +14,10 @@ import Solitaire from "./games/Solitaire";
 import Poker from "./games/Poker/Poker";
 import Battleship from "./games/Battleship/Battleship";
 
+// Lazy-loaded so three.js (and the rest of the FPS) lands in its own chunk
+// and is only downloaded when the game is actually opened.
+const FPS = lazy(() => import("./games/FPS/FPS"));
+
 const GAMES = [
   { id: "chess", label: "♟ CHESS", component: CheckMate, desc: "Beat the AI opponent!" },
   { id: "tetris", label: "🟩 TETRIS", component: Tetris, desc: "Stack blocks and clear lines!" },
@@ -25,13 +30,28 @@ const GAMES = [
   { id: "Solitaire", label: "🃏 SOLITAIRE", component: Solitaire, desc: "Play the classic card game!" },
   { id: "poker", label: "♠️ POKER", component: Poker, desc: "Texas Hold'em · beginner odds helper · 2-6 players, solo or online" },
   { id: "battleship", label: "🚢 BATTLESHIP", component: Battleship, desc: "Online PvP · dynamic board & fleet size" },
+  { id: "fps", label: "🔫 FPS", component: FPS, desc: "3D first-person shooter · work in progress" },
 ];
+
+// True while any game holds pointer lock (e.g. the FPS's mouse look). The
+// Back button is hidden then: it couldn't be clicked anyway, and it would sit
+// on top of the game's view.
+function usePointerLocked() {
+  const [locked, setLocked] = useState(false);
+  useEffect(() => {
+    const update = () => setLocked(!!document.pointerLockElement);
+    document.addEventListener("pointerlockchange", update);
+    return () => document.removeEventListener("pointerlockchange", update);
+  }, []);
+  return locked;
+}
 
 // The selected game comes from /games/:gameId. Shared multiplayer links
 // (/games/poker?room=XXXXXX) land straight in the game — Poker.jsx reads the
 // `room` param itself, same pattern Chat.jsx uses for its own share links.
 const Games = ({ gameId = null }) => {
   const game = gameId ? GAMES.find(g => g.id === gameId) : null;
+  const pointerLocked = usePointerLocked();
   useDocumentTitle(game ? `${game.label.split(" ").slice(1).join(" ")} · Games` : "Games");
 
   if (gameId && !game) return <Redirect to="/games" />;
@@ -41,15 +61,17 @@ const Games = ({ gameId = null }) => {
 
     return (
       <div className="h-screen flex flex-col bg-slate-900 relative">
-        <button
+        {!pointerLocked && <button
           onClick={() => navigate("/games")}
           className="fixed top-4 left-4 px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition-all shadow-lg z-50"
           title="Back to Games"
         >
           ← Back
-        </button>
+        </button>}
         <div className="flex-1 overflow-auto">
-          <GameComponent key={game.id} />
+          <Suspense fallback={<div className="h-full flex items-center justify-center text-slate-400">Loading…</div>}>
+            <GameComponent key={game.id} />
+          </Suspense>
         </div>
       </div>
     );

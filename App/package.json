@@ -36,6 +36,7 @@
     "react-image-gallery": "^1.4.0",
     "react-konva": "^18.2.10",
     "tesseract.js": "^7.0.0",
+    "three": "0.186.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {

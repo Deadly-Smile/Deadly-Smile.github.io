@@ -11,7 +11,7 @@ export default [
   react.configs.flat.recommended,
   react.configs.flat["jsx-runtime"],
   {
-    files: ["**/*.{js,jsx}"],
+    files: ["**/*.{js,jsx,mjs}"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",
@@ -33,8 +33,8 @@ export default [
     },
   },
   {
-    // Vercel functions, tests and config files run in Node, not the browser.
-    files: ["api/**/*.js", "**/*.test.js", "*.config.js", "*.cjs"],
+    // Vercel functions, tests, build scripts and config files run in Node, not the browser.
+    files: ["api/**/*.js", "**/*.test.js", "*.config.js", "*.cjs", "scripts/**/*.mjs"],
     languageOptions: { globals: globals.node },
   },
 ];
