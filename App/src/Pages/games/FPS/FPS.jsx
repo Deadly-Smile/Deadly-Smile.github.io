@@ -227,10 +227,14 @@ function HitMarker({ kind }) {
   );
 }
 
-function DeathOverlay() {
+// `respawnIn` (s) in multiplayer; in survival death ends the run instead.
+function DeathOverlay({ respawnIn = null }) {
   return (
     <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-red-950/40">
-      <div className="text-4xl font-bold text-white drop-shadow">You died</div>
+      <div className="text-center">
+        <div className="text-4xl font-bold text-white drop-shadow">You died</div>
+        {respawnIn !== null && <div className="mt-2 text-sm text-white/70">Respawning in {respawnIn}…</div>}
+      </div>
     </div>
   );
 }
@@ -331,12 +335,12 @@ function NetHud({ net }) {
     <div className="pointer-events-none absolute top-4 left-4 font-mono text-xs text-white/80 drop-shadow space-y-0.5">
       <div>Room <span className="text-white font-bold">{net.roomId}</span>{net.role === "guest" && ` · ${net.ping} ms`}</div>
       {net.players.map(p => (
-        <div key={p.id} className={p.id === net.selfId ? "text-emerald-300" : ""}>
-          {p.name}{p.id === 0 && " (host)"}
+        <div key={p.id} className={`flex gap-3 justify-between ${p.id === net.selfId ? "text-emerald-300" : ""}`}>
+          <span>{p.name}{p.id === 0 && " (host)"}</span>
+          <span>{p.kills ?? 0} / {p.deaths ?? 0}</span>
         </div>
       ))}
       {net.stalled && <div className="text-amber-300">Host not responding…</div>}
-      <div className="text-white/50 pt-1">Warm-up · weapons come online later</div>
     </div>
   );
 }
@@ -525,13 +529,13 @@ export default function FPS() {
     if (!view) return;
     const map = getMap(activeMapId);
     const common = {
-      map, view, models: models ?? null, input: inputRef.current,
+      map, view, models: models ?? null, input: inputRef.current, audio: audioRef.current,
       getSettings: () => settingsRef.current, isPaused: () => pausedRef.current,
     };
     const world = !inGame ? createOrbit(map, view.camera)
       : net ? createNetGame({ ...common, session: net })
         : createGame({
-          ...common, primary, difficulty, audio: audioRef.current,
+          ...common, primary, difficulty,
           onGameOver: (stats) => gameOverRef.current(stats),
         });
     worldRef.current = world;
@@ -587,7 +591,7 @@ export default function FPS() {
     setNetError(null);
     setNetBusy("Creating room…");
     try {
-      const s = await hostSession({ map: getMap(mapId), name: playerName, onRoster: () => {} });
+      const s = await hostSession({ map: getMap(mapId), name: playerName, primary });
       registerOpenRoom(s.roomId, "fps");
       heartbeatRef.current = setInterval(() => registerOpenRoom(s.roomId, "fps"), ROOM_HEARTBEAT_MS);
       enterNet(s);
@@ -600,7 +604,7 @@ export default function FPS() {
     setNetError(null);
     setNetBusy("Joining…");
     try {
-      enterNet(await joinSession({ roomId: code, name: playerName, onRoster: () => {}, onClosed: (reason) => leaveNet(reason) }));
+      enterNet(await joinSession({ roomId: code, name: playerName, primary, onClosed: (reason) => leaveNet(reason) }));
     } catch (e) {
       setNetBusy(null);
       setNetError(e?.message ?? "Couldn't join that room.");
@@ -642,9 +646,9 @@ export default function FPS() {
   }
 
   const current = getMap(activeMapId);
-  // The survival HUD and the multiplayer HUD are different shapes.
+  // Survival and multiplayer share one HUD shape; multiplayer adds `net`.
   const netHud = hud?.net ?? null;
-  const solo = hud && !hud.net ? hud : null;
+  const solo = hud;
   const s = settingsRef.current;
   return (
     <div className="relative h-full w-full overflow-hidden bg-slate-950 select-none">
@@ -676,13 +680,13 @@ export default function FPS() {
       {inGame && solo && solo.hurt > 0 && <HurtFlash key={solo.hurt} />}
       {inGame && solo && !solo.dead && <WeaponHud hud={solo} />}
       {inGame && solo && !solo.dead && <HealthHud hp={solo.hp} />}
-      {inGame && solo && (
+      {inGame && solo && !netHud && (
         <div className="pointer-events-none absolute top-4 left-4 font-mono text-sm text-white/80 drop-shadow">
           <div>Score <span className="text-white font-bold">{solo.score}</span></div>
           <div>Kills <span className="text-white font-bold">{solo.kills}</span></div>
         </div>
       )}
-      {inGame && solo && !solo.dead && <WaveHud hud={solo} />}
+      {inGame && solo && !netHud && !solo.dead && <WaveHud hud={solo} />}
       {inGame && solo && solo.banner.n > 0 && <Banner key={solo.banner.n} text={solo.banner.text} />}
       {inGame && solo?.message && (
         <div key={solo.message.n} className="pointer-events-none absolute left-1/2 bottom-28 -translate-x-1/2 font-mono text-sm text-emerald-300 drop-shadow" style={fade(1500)}>
@@ -694,11 +698,8 @@ export default function FPS() {
           {solo.prompt}
         </div>
       )}
-      {phase !== "over" && solo?.dead && <DeathOverlay />}
+      {phase !== "over" && solo?.dead && <DeathOverlay respawnIn={netHud ? solo.respawnIn : null} />}
       {inGame && netHud && <NetHud net={netHud} />}
-      {phase === "playing" && netHud && (
-        <div className="pointer-events-none absolute left-1/2 top-1/2 w-1 h-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/90" />
-      )}
       {phase === "over" && result && (
         <GameOver result={result} mapName={current.name} onAgain={play} onQuit={quit} />
       )}

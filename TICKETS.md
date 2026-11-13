@@ -250,6 +250,15 @@ Replace the box figures and box guns with open-source models. This overrides the
 
 **Acceptance:** shots that land on screen count (within tolerance on ~100 ms ping), and a guest sending forged or too-frequent shots is ignored. Hit validation has tests.
 
+**As built (2026-11-13):**
+- **Mode for now:** free-for-all deathmatch between the players in the room; teams and bots come with FPS-11. Scores (kills / deaths) show next to each name.
+- **No shot messages at all.** Instead of "shot intents", guests send only their inputs: each command now also carries the weapon buttons (fire, aim, reload, slot, scroll, last weapon, pick up) and the host-clock moment the guest was looking at. The host runs the same weapon code on those inputs (`net/command.js`, shared with the guest's prediction), so fire rate, ammo, reloads and switch delays are enforced by construction. Bullet spread is seeded by the command number, so the host draws the same spread the guest saw.
+- **Lag compensation:** the host keeps 600 ms of positions per player and checks each shot or stab against where the others were at the moment the shooter was looking at, capped at 400 ms back.
+- **Host-owned state:** health and regeneration, deaths, a 3 s respawn at the spawn farthest from other players, 2 s of spawn protection, grenades (flight and blast), drops and pickups (walk-over ammo and grenades, E to swap guns). Guests get reliable events for hits, being hurt, kills, explosions, pickups and the drop list.
+- **Snapshots** now carry the recipient's health, respawn timer and full weapon state (as float64 timers, so replayed predictions fire on the same tick), each other player's weapon, death flag and a shot counter, and the grenades in flight.
+- **Guest side:** your own gun is predicted, so firing, ammo and reloads feel instant; hit markers, damage, kills and pickups only ever come from the host. Other players' shots are heard and drawn from the shot counter; their bullet holes and tracers are for show.
+- **Tests** (`net/net.test.js`): hits, headshots and misses; fire rate and ammo under a flood of 600 fire commands; lag compensation (a shot at a 150 ms old position counts with it and misses without it; a 2 s old position can't be claimed); kills, scores, drops, pickups, respawns; grenades, including killing yourself; the knife's reach; and guest prediction matching the host shot for shot and round for round.
+
 ### FPS-11: Team Deathmatch and bots
 **Depends on:** FPS-10, FPS-6
 

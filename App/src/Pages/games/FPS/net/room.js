@@ -16,7 +16,7 @@ const JOIN_TIMEOUT_MS = 15000;
 const CH_EVENTS = "events";
 const CH_STATE = "state";
 
-// handlers: onJoin(key, name) → welcome message object, or null to refuse
+// handlers: onJoin(key, hello) → welcome message object, or null to refuse
 // (room full); onLeave(key); onEvent(key, msg); onState(key, buffer);
 // onError(err). `key` is the guest's PeerJS id.
 export async function openRoom(handlers) {
@@ -49,7 +49,7 @@ export async function openRoom(handlers) {
           return;
         }
         conn.on("open", () => {
-          const welcome = handlers.onJoin(key, conn.metadata?.name);
+          const welcome = handlers.onJoin(key, conn.metadata ?? {});
           if (!welcome) {
             conn.send({ t: "full" });
             setTimeout(() => conn.close(), 500);
@@ -86,9 +86,10 @@ export async function openRoom(handlers) {
 }
 
 // Resolves with the host's welcome message and the link once joined; rejects
-// with a readable Error (room not found, full, timed out).
+// with a readable Error (room not found, full, timed out). `hello` is what
+// the guest tells the host about itself ({ name, primary }).
 // handlers: onEvent(msg), onState(buffer), onClose().
-export async function joinRoom(roomId, name, handlers) {
+export async function joinRoom(roomId, hello, handlers) {
   const iceServers = await getIceServers();
   const peer = new Peer(undefined, { config: { iceServers } });
 
@@ -107,7 +108,7 @@ export async function joinRoom(roomId, name, handlers) {
 
     peer.on("error", (e) => fail(e?.type === "peer-unavailable" ? "Room not found." : "Connection failed."));
     peer.on("open", () => {
-      const events = peer.connect(roomId, { reliable: true, serialization: "json", metadata: { ch: CH_EVENTS, name } });
+      const events = peer.connect(roomId, { reliable: true, serialization: "json", metadata: { ...hello, ch: CH_EVENTS } });
       let state = null;
       events.on("data", (msg) => {
         if (!msg || typeof msg !== "object") return;
