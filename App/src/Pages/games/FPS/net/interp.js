@@ -63,6 +63,7 @@ export function createInterpolator(delay = DELAY_MS) {
       }
       const k = (t - a.t) / span;
       return {
+        ...b,
         pos: a.pos.map((v, n) => lerp(v, b.pos[n], k)),
         vel,
         yaw: lerpAngle(a.yaw, b.yaw, k),
