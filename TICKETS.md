@@ -271,6 +271,18 @@ Replace the box figures and box guns with open-source models. This overrides the
 
 **Acceptance:** a 2v2 match with two bots on each side plays to the kill or time limit with correct scores on every client.
 
+**As built (2026-11-13):**
+- **Teams:** Blue and Orange. Joining puts you on the team with fewer people; the pause menu has a "Switch team" button (you respawn on the new side). At most 4 people per team.
+- **Bots:** the single-player bot brains run on the host and go through the same command path as players, so they obey the same weapon rules. They fill each team up to the chosen size, step aside when a person joins, and come back when one leaves. Bot damage is scaled by difficulty and their headshots are capped, as in single-player.
+- **Host's match settings** (menu, remembered): team size 1v1 to 4v4, kill limit, time limit, bots on/off, friendly fire, and bot difficulty from the existing Easy/Normal/Hard buttons. The map is the one selected when hosting.
+- **Match flow:** first team to the kill limit wins, or the team ahead when time runs out (level scores are a draw). Then a 10 s intermission where nobody can act, and a fresh match with scores reset.
+- **Friendly fire off by default:** bullets, stabs and blasts pass teammates; your own grenade still hurts you. With it on, a team kill costs the killer a point and scores nothing.
+- **Spawns:** your team's spawn farthest from living enemies and not already occupied, with the 2 s protection from FPS-10. The 3 s respawn delay is unchanged.
+- **Loadout at respawn:** the pause menu's "Primary for your next life" picker takes effect when you next respawn.
+- **HUD:** team scores and the clock at the top, your team named top left. Hold Tab for the scoreboard (kills, deaths, ping per player, bots marked); it also shows between matches with the result.
+- **Looks:** teammates wear the Soldier model and enemies the SWAT gear; on Low graphics the box figures are blue and orange.
+- **Not done:** the ticket's "host chooses the map" is only before hosting; there is no map change between matches without closing the room.
+
 ### FPS-12: In-game text chat
 **Depends on:** FPS-9
 

@@ -13,7 +13,7 @@ const BINDINGS = {
   crouch: ["KeyC"],
 };
 // Keys whose browser default (scrolling, find-as-you-type…) must not fire mid-game.
-const PREVENT = new Set(["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Slash", "Quote"]);
+const PREVENT = new Set(["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Slash", "Quote", "Tab"]);
 // Some browsers report one huge spurious movement right after locking.
 const MAX_MOUSE_JUMP = 400;
 
@@ -117,6 +117,8 @@ export function createInput(lockTarget, { onLockChange, onLockError } = {}) {
       scroll = 0;
       return state;
     },
+    // Tab held: show the scoreboard.
+    scoreboard: () => down.has("Tab"),
     // Arrow keys held: [turn, pitch], each -1/0/1 (right / down positive,
     // matching mouse movement).
     keyLook() {

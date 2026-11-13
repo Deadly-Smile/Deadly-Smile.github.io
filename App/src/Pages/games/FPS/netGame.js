@@ -48,8 +48,11 @@ export function createNetGame({ map, view, input, getSettings, isPaused, models 
   const useModels = models && qualityOf(getSettings().quality).models;
   const viewModel = createViewModel(view.vmScene, models);
   const fx = createEffects(view.scene, models);
+  // Teammates wear the Soldier, the other team the SWAT gear (box figures:
+  // blue for team A, orange for team B).
+  const teamOf = (id) => session.roster.find(p => p.id === id)?.team ?? "a";
   const figures = useModels
-    ? createCharacters(view.scene, models, { modelFor: () => "soldier", weaponOf: a => a.weapon })
+    ? createCharacters(view.scene, models, { modelFor: a => (a.team === teamOf(session.selfId) ? "soldier" : "enemy"), weaponOf: a => a.weapon })
     : createActorMeshes(view.scene);
   const pickupMeshes = createPickupMeshes(view.scene, models);
   const actors = new Map(); // player id → the object its figure is drawn from
@@ -141,8 +144,11 @@ export function createNetGame({ map, view, input, getSettings, isPaused, models 
   }
 
   function actorFor(o, dt) {
-    let a = actors.get(o.id);
-    if (!a) actors.set(o.id, a = { id: o.id, team: "a", health: { dead: false }, deadFor: 0, hitFlash: 0, flash: 0, firedAgo: Infinity, shots: o.shots });
+    // Keyed by team too: changing sides gets a fresh figure in the new kit.
+    const team = teamOf(o.id);
+    const key = `${o.id}:${team}`;
+    let a = actors.get(key);
+    if (!a) actors.set(key, a = { id: key, team, health: { dead: false }, deadFor: 0, hitFlash: 0, flash: 0, firedAgo: Infinity, shots: o.shots });
     if (o.dead && !a.health.dead) a.deadFor = 0;
     a.health.dead = !!o.dead;
     a.deadFor += dt;
@@ -157,7 +163,7 @@ export function createNetGame({ map, view, input, getSettings, isPaused, models 
         a.flash = MUZZLE_FLASH;
         const origin = [o.pos[0], o.pos[1] + o.height - 0.2, o.pos[2]];
         const d = direction(o.yaw, o.pitch);
-        const end = cosmeticRay(origin, d, WEAPONS[o.weapon]?.range ?? 60, o.id);
+        const end = cosmeticRay(origin, d, WEAPONS[o.weapon]?.range ?? 60, key);
         fx.tracer([origin[0] + d[0] * 0.6, origin[1] - 0.25, origin[2] + d[2] * 0.6], end);
         sfx.shot(o.weapon, origin);
       }
@@ -170,7 +176,8 @@ export function createNetGame({ map, view, input, getSettings, isPaused, models 
       // Always read (so nothing queues up while paused), only use when playing.
       const move = input.read();
       const weapon = input.readWeapon();
-      const idle = isPaused();
+      // No input while the menu is open or between matches.
+      const idle = isPaused() || session.match.state === "over";
       const out = session.step({
         input: idle ? NO_INPUT : { ...move, ads: weapon.ads },
         weapon: idle ? NO_WEAPON : weapon,
@@ -250,8 +257,9 @@ export function createNetGame({ map, view, input, getSettings, isPaused, models 
       // ticks); a guest's are already interpolated snapshots.
       const seen = new Set();
       drawn = session.others(performance.now()).map((o) => {
-        seen.add(o.id);
-        return actorFor(o, frameDt);
+        const a = actorFor(o, frameDt);
+        seen.add(a.id);
+        return a;
       });
       for (const id of actors.keys()) if (!seen.has(id)) actors.delete(id);
       figures.update(drawn, session.role === "host" ? alpha : 1, frameDt);
@@ -302,7 +310,10 @@ export function createNetGame({ map, view, input, getSettings, isPaused, models 
           empty: id === "grenade" && loadout.ammo.grenade.mag === 0,
           count: id === "grenade" ? loadout.ammo.grenade.mag : null,
         })),
-        net: { role: session.role, roomId: session.roomId, players: session.roster, selfId: session.selfId, ping, stalled },
+        net: {
+          role: session.role, roomId: session.roomId, players: session.roster, selfId: session.selfId, ping, stalled,
+          team: teamOf(session.selfId), match: session.match, showScores: input.scoreboard(),
+        },
       };
     },
 

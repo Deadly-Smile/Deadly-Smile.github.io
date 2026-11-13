@@ -13,7 +13,10 @@
 //   viewTime(nowMs)           the host-clock moment the others are drawn at
 //   takeCorrection()          how far prediction was corrected since last
 //                             asked ([dx,dy,dz]; guests only, else zeros)
-//   roster / status()         who's here and their scores; ping, link health
+//   roster / match            who's here (team, score, ping) and the match
+//                             (state, team scores, time left, winner)
+//   setTeam(t) / setPrimary(w)  ask to change sides / the next life's gun
+//   status()                  ping, link health
 //   close()
 //
 // The host runs the match (hostSim.js), sends each guest snapshots and
@@ -34,8 +37,9 @@ const STALL_MS = 1500;     // no snapshot for this long: "host not responding"
 const LOST_MS = 10000;     // …this long: give up
 const ZERO = [0, 0, 0];
 
-export async function hostSession({ map, name, primary }) {
-  const sim = createHostSim(map, cleanName(name), { hostPrimary: primary });
+// `options`: the match settings (see DEFAULT_OPTIONS in hostSim.js).
+export async function hostSession({ map, name, primary, options }) {
+  const sim = createHostSim(map, cleanName(name), { hostPrimary: primary, options });
   const keys = new Map(); // player id → guest's PeerJS id
   const ids = new Map();  // …and back
   const started = performance.now();
@@ -45,12 +49,15 @@ export async function hostSession({ map, name, primary }) {
 
   const room = await openRoom({
     onJoin(key, hello) {
-      const id = sim.add(hello.name, hello.primary);
+      const id = sim.add(hello.name, hello.primary, hello.team);
       if (id === null) return null;
       keys.set(id, key);
       ids.set(key, id);
       const b = sim.players.get(id).body;
-      return { t: "welcome", id, map: map.id, spawn: { pos: b.pos, yaw: b.yaw }, players: sim.roster(), drops: sim.dropList() };
+      return {
+        t: "welcome", id, map: map.id, spawn: { pos: b.pos, yaw: b.yaw },
+        players: sim.roster(), match: sim.matchState(), drops: sim.dropList(),
+      };
     },
     onLeave(key) {
       sim.remove(ids.get(key));
@@ -58,7 +65,12 @@ export async function hostSession({ map, name, primary }) {
       ids.delete(key);
     },
     onEvent(key, msg) {
-      if (msg.t === "ping") room.sendEvent(key, { t: "pong", c: msg.c });
+      const id = ids.get(key);
+      if (msg.t === "ping") {
+        room.sendEvent(key, { t: "pong", c: msg.c });
+        sim.setPing(id, msg.rtt);
+      } else if (msg.t === "team") sim.setTeam(id, msg.team);
+      else if (msg.t === "primary") sim.setPrimary(id, msg.weapon);
     },
     onState(key, buf) {
       const cmds = decodeCommands(buf);
@@ -68,7 +80,7 @@ export async function hostSession({ map, name, primary }) {
 
   // Hand the tick's events to whoever they're for.
   function deliver() {
-    if (sim.changed("roster")) sim.events.push({ to: null, msg: { t: "roster", players: sim.roster() } });
+    if (sim.changed("roster")) sim.events.push({ to: null, msg: { t: "roster", players: sim.roster(), match: sim.matchState() } });
     if (sim.changed("drops")) sim.events.push({ to: null, msg: { t: "drops", list: sim.dropList() } });
     for (const { to, msg } of sim.events) {
       if (to === null) room.broadcast(msg);
@@ -86,6 +98,9 @@ export async function hostSession({ map, name, primary }) {
     body: me.body,
     loadout: me.loadout,
     get roster() { return sim.roster(); },
+    get match() { return sim.matchState(); },
+    setTeam: (team) => sim.setTeam(HOST_ID, team),
+    setPrimary: (weapon) => sim.setPrimary(HOST_ID, weapon),
     step(cmd) {
       const time = performance.now() - started;
       const out = sim.tick(cmd, time);
@@ -121,12 +136,15 @@ export async function hostSession({ map, name, primary }) {
 }
 
 // onClosed(reason) when the host goes away or the link dies.
+const NO_MATCH = { state: "playing", timeLeft: 0, scores: { a: 0, b: 0 }, winner: null, restartIn: 0, killLimit: 0 };
+
 export async function joinSession({ roomId, name, primary, onClosed }) {
   const code = String(roomId).trim().toUpperCase();
   const interp = createInterpolator();
   let predictor = null;
   let boxes = null;
   let roster = [];
+  let match = NO_MATCH;
   let inbox = [];
   let latest = null;       // newest snapshot
   let ping = 0;
@@ -136,8 +154,10 @@ export async function joinSession({ roomId, name, primary, onClosed }) {
 
   const link = await joinRoom(code, { name: cleanName(name), primary }, {
     onEvent(msg) {
-      if (msg.t === "roster" && Array.isArray(msg.players)) roster = msg.players;
-      else if (msg.t === "pong") ping = Math.round(performance.now() - msg.c);
+      if (msg.t === "roster" && Array.isArray(msg.players)) {
+        roster = msg.players;
+        if (msg.match) match = msg.match;
+      } else if (msg.t === "pong") ping = Math.round(performance.now() - msg.c);
       else inbox.push(msg);
     },
     onState(buf) {
@@ -161,10 +181,11 @@ export async function joinSession({ roomId, name, primary, onClosed }) {
 
   const { welcome } = link;
   roster = welcome.players ?? [];
+  match = welcome.match ?? NO_MATCH;
   if (Array.isArray(welcome.drops)) inbox.push({ t: "drops", list: welcome.drops });
   predictor = createPredictor(welcome.id, welcome.spawn, primary);
   const pinger = setInterval(() => {
-    link.sendEvent({ t: "ping", c: performance.now() });
+    link.sendEvent({ t: "ping", c: performance.now(), rtt: ping });
     if (!closed && performance.now() - lastSnapshot > LOST_MS) {
       closed = true;
       clearInterval(pinger);
@@ -181,6 +202,9 @@ export async function joinSession({ roomId, name, primary, onClosed }) {
     body: predictor.body,
     loadout: predictor.loadout,
     get roster() { return roster; },
+    get match() { return match; },
+    setTeam: (team) => link.sendEvent({ t: "team", team }),
+    setPrimary: (weapon) => link.sendEvent({ t: "primary", weapon }),
     // The map's boxes, once the game has loaded the map the host chose.
     setBoxes(b) { boxes = b; },
     step(cmd) {

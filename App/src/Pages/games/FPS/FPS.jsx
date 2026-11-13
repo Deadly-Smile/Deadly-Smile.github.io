@@ -59,7 +59,7 @@ const LEGEND = [
 const CONTROLS = [
   ["W A S D", "move"], ["Mouse / ← → ↑ ↓", "look"], ["Shift", "sprint"],
   ["Space", "jump"], ["C", "crouch"], ["Left click", "fire"], ["Right click", "aim"],
-  ["R", "reload"], ["1–4 / wheel", "weapons"], ["Q", "last weapon"], ["E", "take gun"], ["Esc", "pause"],
+  ["R", "reload"], ["1–4 / wheel", "weapons"], ["Q", "last weapon"], ["E", "take gun"], ["Tab", "scores (multiplayer)"], ["Esc", "pause"],
 ];
 
 // How often the React HUD is refreshed from the game (it only re-renders
@@ -330,18 +330,92 @@ const ROOM_HEARTBEAT_MS = 20000;
 const shareLink = (roomId) => `${window.location.origin}/games/fps?room=${roomId}`;
 
 // Top-left during a multiplayer session: room, players, link health.
+const TEAM_NAME = { a: "Blue", b: "Orange" };
+const TEAM_TEXT = { a: "text-sky-300", b: "text-orange-300" };
+const clock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
+// During a multiplayer match: room and link health (top left), the team
+// scores and the clock (top centre).
 function NetHud({ net }) {
+  const { match } = net;
   return (
-    <div className="pointer-events-none absolute top-4 left-4 font-mono text-xs text-white/80 drop-shadow space-y-0.5">
-      <div>Room <span className="text-white font-bold">{net.roomId}</span>{net.role === "guest" && ` · ${net.ping} ms`}</div>
-      {net.players.map(p => (
-        <div key={p.id} className={`flex gap-3 justify-between ${p.id === net.selfId ? "text-emerald-300" : ""}`}>
-          <span>{p.name}{p.id === 0 && " (host)"}</span>
-          <span>{p.kills ?? 0} / {p.deaths ?? 0}</span>
+    <>
+      <div className="pointer-events-none absolute top-4 left-4 font-mono text-xs text-white/80 drop-shadow space-y-0.5">
+        <div>Room <span className="text-white font-bold">{net.roomId}</span>{net.role === "guest" && ` · ${net.ping} ms`}</div>
+        <div>You: <span className={TEAM_TEXT[net.team]}>{TEAM_NAME[net.team]}</span> · Tab for scores</div>
+        {net.stalled && <div className="text-amber-300">Host not responding…</div>}
+      </div>
+      <div className="pointer-events-none absolute top-4 left-1/2 -translate-x-1/2 text-center font-mono text-white drop-shadow">
+        <div className="text-2xl font-bold">
+          <span className={TEAM_TEXT.a}>{match.scores.a}</span>
+          <span className="text-white/50 text-base mx-2">{clock(match.timeLeft)}</span>
+          <span className={TEAM_TEXT.b}>{match.scores.b}</span>
         </div>
-      ))}
-      {net.stalled && <div className="text-amber-300">Host not responding…</div>}
+        <div className="text-[11px] text-white/60">first to {match.killLimit}</div>
+      </div>
+    </>
+  );
+}
+
+// Both teams' players with kills, deaths and ping; shown while Tab is held
+// and between matches (then with the result on top).
+function Scoreboard({ net }) {
+  const { match } = net;
+  const over = match.state === "over";
+  const result = !over ? null : match.winner === null ? "Draw" : match.winner === net.team ? "Your team wins" : "Your team loses";
+  return (
+    <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-slate-950/55">
+      <div className="w-[min(40rem,calc(100%-2rem))] rounded-xl bg-slate-900/95 border border-slate-700 p-4 font-mono text-sm">
+        {over && (
+          <div className="text-center mb-3">
+            <div className="text-3xl font-bold text-white font-sans">{result}</div>
+            <div className="text-xs text-slate-400">Next match in {match.restartIn}…</div>
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-4">
+          {["a", "b"].map(team => (
+            <div key={team}>
+              <div className={`flex justify-between font-bold border-b border-slate-700 pb-1 mb-1 ${TEAM_TEXT[team]}`}>
+                <span>{TEAM_NAME[team]}</span><span>{match.scores[team]}</span>
+              </div>
+              <div className="flex justify-between text-[11px] text-slate-500"><span>player</span><span>K / D · ping</span></div>
+              {net.players.filter(p => p.team === team).sort((x, y) => y.kills - x.kills).map(p => (
+                <div key={p.id} className={`flex justify-between ${p.id === net.selfId ? "text-emerald-300" : "text-slate-200"}`}>
+                  <span className="truncate">{p.name}</span>
+                  <span className="shrink-0">{p.kills} / {p.deaths} · {p.bot ? "bot" : `${p.ping} ms`}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
+  );
+}
+
+// The host's match settings, chosen before hosting.
+const DEFAULT_MATCH = { teamSize: 2, bots: true, killLimit: 20, minutes: 10, friendlyFire: false };
+function MatchOptions({ value, onChange }) {
+  const set = (k, v) => onChange({ ...DEFAULT_MATCH, ...value, [k]: v });
+  const select = (k, options) => (
+    <select value={value[k]} onChange={e => set(k, Number(e.target.value))} aria-label={k}
+      className="px-1 py-1 rounded-md bg-slate-800 border border-slate-700 text-xs text-white">
+      {options.map(([v, text]) => <option key={v} value={v}>{text}</option>)}
+    </select>
+  );
+  const toggle = (k, text) => (
+    <label className="flex items-center gap-1 text-xs text-slate-300 cursor-pointer">
+      <input type="checkbox" checked={value[k]} onChange={e => set(k, e.target.checked)} />{text}
+    </label>
+  );
+  return (
+    <>
+      {select("teamSize", [1, 2, 3, 4].map(n => [n, `${n} v ${n}`]))}
+      {select("killLimit", [10, 20, 30, 50].map(n => [n, `${n} kills`]))}
+      {select("minutes", [5, 10, 15].map(n => [n, `${n} min`]))}
+      {toggle("bots", "Bots fill teams")}
+      {toggle("friendlyFire", "Friendly fire")}
+    </>
   );
 }
 
@@ -384,6 +458,7 @@ export default function FPS() {
   // An invite link (/games/fps?room=CODE) pre-fills the code to join.
   const [joinCode, setJoinCode] = useState(() => (new URLSearchParams(window.location.search).get("room") ?? "").toUpperCase());
   const [openRooms, setOpenRooms] = useState([]);
+  const [matchOptions, setMatchOptions] = usePersistentState("game:fps:match", DEFAULT_MATCH);
   const netRef = useRef(null);
   netRef.current = net;
   const heartbeatRef = useRef(null);
@@ -591,7 +666,10 @@ export default function FPS() {
     setNetError(null);
     setNetBusy("Creating room…");
     try {
-      const s = await hostSession({ map: getMap(mapId), name: playerName, primary });
+      const s = await hostSession({
+        map: getMap(mapId), name: playerName, primary,
+        options: { ...DEFAULT_MATCH, ...matchOptions, difficulty },
+      });
       registerOpenRoom(s.roomId, "fps");
       heartbeatRef.current = setInterval(() => registerOpenRoom(s.roomId, "fps"), ROOM_HEARTBEAT_MS);
       enterNet(s);
@@ -700,6 +778,7 @@ export default function FPS() {
       )}
       {phase !== "over" && solo?.dead && <DeathOverlay respawnIn={netHud ? solo.respawnIn : null} />}
       {inGame && netHud && <NetHud net={netHud} />}
+      {inGame && netHud && phase !== "paused" && (netHud.showScores || netHud.match.state === "over") && <Scoreboard net={netHud} />}
       {phase === "over" && result && (
         <GameOver result={result} mapName={current.name} onAgain={play} onQuit={quit} />
       )}
@@ -714,6 +793,16 @@ export default function FPS() {
                 <div className="font-mono text-2xl tracking-widest text-white">{net.roomId}</div>
                 <CopyLink roomId={net.roomId} />
                 <div className="text-[11px] text-slate-500">The game keeps running while this menu is open.</div>
+              </div>
+            )}
+            {net && netHud && (
+              <div className="space-y-2">
+                <button onClick={() => net.setTeam(netHud.team === "a" ? "b" : "a")}
+                  className="w-full py-1.5 rounded-lg bg-slate-800 border border-slate-700 hover:border-slate-500 text-sm text-slate-200">
+                  Switch to {TEAM_NAME[netHud.team === "a" ? "b" : "a"]} team
+                </button>
+                <Segmented label="Primary for your next life" options={PRIMARIES.map(id => [id, WEAPONS[id].name])} value={primary}
+                  onChange={(id) => { setPrimary(id); net.setPrimary(id); }} />
               </div>
             )}
             <button onClick={resume} className="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">
@@ -815,6 +904,7 @@ export default function FPS() {
               className="px-3 py-1 rounded-md text-xs border border-slate-600 bg-slate-800 text-white hover:border-indigo-400 disabled:opacity-50">
               Host on {getMap(mapId).name}
             </button>
+            <MatchOptions value={{ ...DEFAULT_MATCH, ...matchOptions }} onChange={setMatchOptions} />
             <span className="text-xs text-slate-500">or</span>
             <input value={joinCode} onChange={e => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10))}
               placeholder="Room code" aria-label="Room code"

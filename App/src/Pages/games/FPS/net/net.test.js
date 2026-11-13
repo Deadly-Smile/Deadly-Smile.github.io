@@ -6,10 +6,10 @@
 import {
   encodeCommands, decodeCommands, encodeSnapshot, decodeSnapshot, packKeys, unpackKeys, MAX_PLAYERS, CMD_REDUNDANCY,
 } from "./protocol.js";
-import { createHostSim, cleanName, HOST_ID, RESPAWN_DELAY, SPAWN_PROTECTION } from "./hostSim.js";
+import { createHostSim, cleanName, HOST_ID, RESPAWN_DELAY, SPAWN_PROTECTION, INTERMISSION } from "./hostSim.js";
 import { seededRand, loadoutState } from "./command.js";
 import { WEAPONS, createLoadout } from "../engine/weapons.js";
-import { EYE_HEIGHT } from "../engine/geometry.js";
+import { EYE_HEIGHT, bodyBox, overlapsAny } from "../engine/geometry.js";
 import { perimeter, spawn } from "../maps/build.js";
 import { createPredictor } from "./predict.js";
 import { createInterpolator, DELAY_MS } from "./interp.js";
@@ -87,11 +87,12 @@ const SELF = {
 
 // ─── Host simulation: rooms and movement ─────────────────────────────────────
 const map = getMap("arena");
+const NO_BOTS = { options: { bots: false } };
 let clock = 0;
 const tick = (sim, local = IDLE) => sim.tick({ yaw: 0, ...local }, clock += 1000 / 60);
 {
   check("names are cleaned", [cleanName("  <b>Al!ce</b> "), cleanName(""), cleanName("x".repeat(40)).length], ["bAlceb", "Player", 16]);
-  const sim = createHostSim(map, "Host");
+  const sim = createHostSim(map, "Host", NO_BOTS);
   const ids = [];
   for (let i = 0; i < MAX_PLAYERS + 2; i++) ids.push(sim.add(`g${i}`));
   check("room holds 8 including the host", ids, [1, 2, 3, 4, 5, 6, 7, null, null, null]);
@@ -101,10 +102,11 @@ const tick = (sim, local = IDLE) => sim.tick({ yaw: 0, ...local }, clock += 1000
   check("the host can't be removed", sim.players.has(HOST_ID), true);
   const spots = new Set([...sim.players.values()].map(p => p.body.pos.join(",")));
   check("everyone spawns somewhere different", spots.size, MAX_PLAYERS);
-  check("the roster carries scores", sim.roster()[0], { id: 0, name: "Host", kills: 0, deaths: 0 });
+  check("the roster carries teams and scores", sim.roster()[0], { id: 0, name: "Host", team: "a", bot: false, kills: 0, deaths: 0, ping: 0 });
+  check("people are spread evenly over the two teams", ["a", "b"].map(t => sim.roster().filter(p => p.team === t).length), [4, 4]);
 }
 {
-  const sim = createHostSim(map, "Host");
+  const sim = createHostSim(map, "Host", NO_BOTS);
   const id = sim.add("guest");
   const p = sim.players.get(id);
   const start = [...p.body.pos];
@@ -138,7 +140,7 @@ const range = {
   teamSpawns: { a: [spawn(-15, 0, 15), spawn(15, 0, 15)], b: [spawn(-15, 0, -15), spawn(15, 0, -15)] },
 };
 function duel(opts = {}) {
-  const sim = createHostSim(range, "Host", { rand: seededRand(3), ...opts });
+  const sim = createHostSim(range, "Host", { rand: seededRand(3), ...opts, options: { bots: false, ...opts.options } });
   const id = sim.add("guest", "rifle");
   const host = sim.players.get(HOST_ID);
   const guest = sim.players.get(id);
@@ -323,9 +325,120 @@ const aimPitch = (dist) => Math.atan2(1.1 - EYE_HEIGHT, dist);
   check("a stab at arm's length hurts", host.health.hp, 100 - WEAPONS.knife.damage);
 }
 
+// ─── Team Deathmatch ─────────────────────────────────────────────────────────
+{
+  // Bots fill each team to its size and make way for people.
+  const sim = createHostSim(map, "Host", { rand: seededRand(8), options: { teamSize: 3 } });
+  const count = () => ["a", "b"].map(t => [sim.roster().filter(p => p.team === t && !p.bot).length, sim.roster().filter(p => p.team === t && p.bot).length]);
+  check("host alone: bots fill both teams to 3", count(), [[1, 2], [0, 3]]);
+  const g1 = sim.add("g1");
+  check("a guest joins the emptier team; a bot there makes way", [sim.players.get(g1).team, count()], ["b", [[1, 2], [1, 2]]]);
+  const g2 = sim.add("g2", "smg", "b");
+  check("a guest can ask for a team", [sim.players.get(g2).team, count()], ["b", [[1, 2], [2, 1]]]);
+  check("six players in all, whatever the mix", sim.roster().length, 6);
+  sim.remove(g1);
+  check("when someone leaves, a bot takes the place", count(), [[1, 2], [1, 2]]);
+  check("switching sides moves bots too", [sim.setTeam(g2, "a"), sim.players.get(g2).team, count()], [true, "a", [[2, 1], [0, 3]]]);
+  check("…and you respawn on your new side", map.teamSpawns.a.some(sp => dist(sp.pos, sim.players.get(g2).body.pos) < 0.01), true);
+  check("bots can't be told to switch or leave", [sim.setTeam(sim.roster().find(p => p.bot).id, "a"), (sim.remove(sim.roster().find(p => p.bot).id), sim.roster().length)], [false, 6]);
+  check("bots are named as bots", sim.roster().filter(p => p.bot).every(p => /\[bot\]$/.test(p.name)), true);
+
+  const full = createHostSim(map, "Host", { options: { teamSize: 4 } });
+  check("4 v 4 with bots is a full room of 8", full.roster().length, 8);
+  const ids = [];
+  for (let i = 0; i < 9; i++) ids.push(full.add(`g${i}`));
+  check("people replace the bots; the ninth person is turned away", [ids.filter(x => x !== null).length, full.roster().filter(p => p.bot).length], [7, 0]);
+}
+{
+  // Friendly fire is off by default: bullets and blasts pass teammates.
+  const { sim, host, guest, step, settle } = duel();
+  sim.setTeam(guest.id, "a");
+  settle();
+  const fresh = () => { guest.body.pos = [0, 0, -5]; guest.body.yaw = Math.PI; host.body.pos = [0, 0, 5]; host.history = []; host.health.hp = 100; };
+  fresh();
+  for (let i = 0; i < 5; i++) step(act({ ads: true }));
+  let ev = [];
+  for (let i = 0; i < 30; i++) ev.push(...step(act({ ads: true }, { fire: true }, { pitch: aimPitch(10) })));
+  check("shooting a teammate does nothing", [host.health.hp, ev.some(e => e.t === "hit")], [100, false]);
+
+  const ff = duel({ options: { friendlyFire: true } });
+  ff.sim.setTeam(ff.guest.id, "a");
+  ff.settle();
+  ff.guest.body.pos = [0, 0, -5];
+  ff.host.body.pos = [0, 0, 5];
+  ff.host.history = [];
+  for (let i = 0; i < 5; i++) ff.step(act({ ads: true }));
+  for (let i = 0; i < 120 && !ff.host.health.dead; i++) ff.step(act({ ads: true }, { fire: true }, { pitch: aimPitch(10) }));
+  check("with friendly fire on, it hurts — and a team kill costs a point", [ff.host.health.dead, ff.guest.kills, ff.sim.match.scores], [true, -1, { a: 0, b: 0 }]);
+}
+{
+  // The match: kill limit, intermission, a fresh start.
+  const { sim, host, guest, step, settle } = duel({ options: { killLimit: 2 } });
+  const killHost = () => {
+    settle();
+    host.body.pos = [0, 0, 5];
+    host.history = [];
+    guest.body.pos = [0, 0, -5];
+    for (let i = 0; i < 5; i++) step(act({ ads: true }));
+    for (let i = 0; i < 120 && !host.health.dead; i++) step(act({ ads: true }, { fire: true }, { pitch: aimPitch(10) }));
+  };
+  killHost();
+  check("a kill scores for the team", [sim.match.scores, sim.match.state], [{ a: 0, b: 1 }, "playing"]);
+  for (let i = 0; i < RESPAWN_DELAY * 60 + 5; i++) step();
+  killHost();
+  check("reaching the kill limit ends the match", [sim.match.state, sim.match.winner, sim.matchState().scores], ["over", "b", { a: 0, b: 2 }]);
+  const frozen = [...guest.body.pos];
+  const seq = guest.lastSeq;
+  for (let i = 0; i < 60; i++) step(act({ forward: true }, { fire: true }));
+  check("during the intermission nobody moves or shoots", [guest.body.pos, guest.shots > 0 && guest.lastSeq > seq], [frozen, true]);
+  for (let i = 0; i < INTERMISSION * 60; i++) step();
+  check("then a fresh match starts", [sim.match.state, sim.match.scores, sim.roster().map(p => [p.kills, p.deaths]), host.health.dead], ["playing", { a: 0, b: 0 }, [[0, 0], [0, 0]], false]);
+
+  const timed = duel({ options: { minutes: 0.05 } }); // 3 s
+  timed.sim.match.scores.a = 3;
+  for (let i = 0; i < 200; i++) timed.step();
+  check("when time runs out, the team ahead wins", [timed.sim.match.state, timed.sim.match.winner], ["over", "a"]);
+  const draw = duel({ options: { minutes: 0.05 } });
+  for (let i = 0; i < 200; i++) draw.step();
+  check("level scores are a draw", [draw.sim.match.state, draw.sim.match.winner], ["over", null]);
+}
+{
+  // The weapon you ask for arrives with your next life.
+  const { sim, host, guest, step, settle } = duel();
+  sim.setPrimary(guest.id, "shotgun");
+  sim.setPrimary(guest.id, "pistol"); // not a primary: ignored
+  check("the current life keeps its gun", guest.loadout.slots[0], "rifle");
+  settle();
+  host.body.pos = [0, 0, 5];
+  guest.body.pos = [0, 0, -5];
+  guest.history = [];
+  for (let i = 0; i < 5; i++) step(IDLE, act({ ads: true }, {}, { pitch: aimPitch(10) }));
+  for (let i = 0; i < 200 && !guest.health.dead; i++) step(IDLE, act({ ads: true }, { fire: true }, { pitch: aimPitch(10) }));
+  for (let i = 0; i < RESPAWN_DELAY * 60 + 5; i++) step();
+  check("after respawning you carry the new one", [guest.health.dead, guest.loadout.slots[0]], [false, "shotgun"]);
+}
+{
+  // Bots really play: two a side on the arena, the host standing still.
+  const sim = createHostSim(map, "Host", { rand: seededRand(21), options: { teamSize: 3, killLimit: 1000, difficulty: "hard" } });
+  let inside = 0;
+  for (let i = 0; i < 60 * 150; i++) {
+    tick(sim);
+    if (i % 30 === 0) {
+      for (const p of sim.players.values()) {
+        if (!p.health.dead && overlapsAny(bodyBox(p.body.pos, { height: p.body.height }), map.boxes)) inside++;
+      }
+    }
+  }
+  const { a, b } = sim.match.scores;
+  check("in two and a half minutes the bots find and kill each other", a + b >= 3, true);
+  check("team scores equal the kills made", a + b, sim.roster().reduce((n, p) => n + p.kills, 0));
+  check("nobody ends up inside a wall", inside, 0);
+  check("bots shoot, with weapons others can see", sim.roster().some(p => p.bot && sim.players.get(p.id).shots > 0), true);
+}
+
 // ─── Prediction over a perfect link ──────────────────────────────────────────
 {
-  const sim = createHostSim(map, "Host");
+  const sim = createHostSim(map, "Host", NO_BOTS);
   const id = sim.add("guest", "smg");
   const gp = sim.players.get(id);
   const guest = createPredictor(id, { pos: [...gp.body.pos], yaw: gp.body.yaw }, "smg");
@@ -359,7 +472,7 @@ const aimPitch = (dist) => Math.atan2(1.1 - EYE_HEIGHT, dist);
 // ─── Prediction over a slow, lossy link ──────────────────────────────────────
 // 80 ms each way, 10% of packets lost in both directions.
 {
-  const sim = createHostSim(map, "Host");
+  const sim = createHostSim(map, "Host", NO_BOTS);
   const id = sim.add("guest");
   const gp = sim.players.get(id);
   const guest = createPredictor(id, { pos: [...gp.body.pos], yaw: gp.body.yaw });
