@@ -362,14 +362,19 @@ function NetHud({ net }) {
 function Scoreboard({ net }) {
   const { match } = net;
   const over = match.state === "over";
-  const result = !over ? null : match.winner === null ? "Draw" : match.winner === net.team ? "Your team wins" : "Your team loses";
+  const result = !over ? null
+    : match.ended === "host" ? "Match ended by the host"
+      : match.winner === null ? "Draw" : match.winner === net.team ? "Your team wins" : "Your team loses";
+  const next = getMap(match.nextMapId ?? match.mapId);
   return (
     <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-slate-950/55">
       <div className="w-[min(40rem,calc(100%-2rem))] rounded-xl bg-slate-900/95 border border-slate-700 p-4 font-mono text-sm">
         {over && (
           <div className="text-center mb-3">
             <div className="text-3xl font-bold text-white font-sans">{result}</div>
-            <div className="text-xs text-slate-400">Next match in {match.restartIn}…</div>
+            <div className="text-xs text-slate-400">
+              Next match{next.id !== match.mapId && <> on <span className="text-white">{next.name}</span></>} in {match.restartIn}…
+            </div>
           </div>
         )}
         <div className="grid grid-cols-2 gap-4">
@@ -389,6 +394,33 @@ function Scoreboard({ net }) {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+// Host only, in the menu: the map for the next match, and ending this one
+// early to get there.
+function NextMap({ net, match }) {
+  const next = match.nextMapId ?? match.mapId;
+  const playing = match.state === "playing";
+  return (
+    <div className="space-y-2 text-sm text-slate-300">
+      <label className="block">
+        <div className="mb-1">Next map</div>
+        <select value={next} onChange={e => net.setNextMap(e.target.value)}
+          className="w-full px-2 py-1 rounded-md bg-slate-800 border border-slate-700 text-xs text-white">
+          {MAPS.map(m => <option key={m.id} value={m.id}>{m.name}{m.id === match.mapId ? " (current)" : ""}</option>)}
+        </select>
+      </label>
+      {playing ? (
+        <button onClick={() => net.endNow()}
+          className="w-full py-1.5 rounded-lg bg-slate-800 border border-slate-700 hover:border-slate-500 text-sm text-slate-200">
+          {next === match.mapId ? "End match and restart" : `End match and go to ${getMap(next).name}`}
+        </button>
+      ) : (
+        <div className="text-[11px] text-slate-500">Starts when the next match does, in {match.restartIn} s.</div>
+      )}
+      {playing && <div className="text-[11px] text-slate-500">Otherwise the map changes when this match ends.</div>}
     </div>
   );
 }
@@ -476,8 +508,11 @@ export default function FPS() {
   const settingsRef = useRef(settings);
   settingsRef.current = { ...DEFAULT_SETTINGS, ...settings };
   const quality = settingsRef.current.quality;
-  // A guest plays the map the host chose, whatever is selected here.
-  const activeMapId = net?.mapId ?? mapId;
+  // In multiplayer the map is the host's choice (whatever is selected here)
+  // and can change between matches. The session object stays the same, so
+  // the current map is read from the HUD, which re-renders when it changes.
+  const hudMapId = hud?.net?.roomId === net?.roomId ? hud?.net?.match?.mapId : null;
+  const activeMapId = net ? (hudMapId ?? net.mapId) : mapId;
   const ready = models !== undefined;
 
   // Run over: record the best score for this map, show the results and give
@@ -805,6 +840,7 @@ export default function FPS() {
                   onChange={(id) => { setPrimary(id); net.setPrimary(id); }} />
               </div>
             )}
+            {net?.role === "host" && netHud && <NextMap net={net} match={netHud.match} />}
             <button onClick={resume} className="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">
               Resume
             </button>

@@ -4,7 +4,7 @@
 // simulated slow, lossy link. Run with:
 //   node src/Pages/games/FPS/net/net.test.js
 import {
-  encodeCommands, decodeCommands, encodeSnapshot, decodeSnapshot, packKeys, unpackKeys, MAX_PLAYERS, CMD_REDUNDANCY,
+  encodeCommands, decodeCommands, encodeSnapshot, decodeSnapshot, packKeys, unpackKeys, snapshotWanted, MAX_PLAYERS, CMD_REDUNDANCY,
 } from "./protocol.js";
 import { createHostSim, cleanName, HOST_ID, RESPAWN_DELAY, SPAWN_PROTECTION, INTERMISSION } from "./hostSim.js";
 import { seededRand, loadoutState } from "./command.js";
@@ -78,6 +78,11 @@ const SELF = {
   check("grenades to the centimetre", back.grenades, [[1.25, 0.08, -3.5]]);
   check("7 other players and a grenade fit in under 230 bytes", encodeSnapshot({ ...snap, others: Array(7).fill(snap.others[0]) }).byteLength < 230, true);
   check("a truncated snapshot is rejected", decodeSnapshot(encodeSnapshot(snap).slice(0, 90)), null);
+  check("the map generation round-trips (and wraps at a byte)", [back.gen, decodeSnapshot(encodeSnapshot({ ...snap, gen: 7 })).gen, decodeSnapshot(encodeSnapshot({ ...snap, gen: 256 })).gen], [0, 7, 0]);
+  const g7 = { tick: 50, gen: 7 };
+  check("a guest takes newer snapshots of the loaded map only", [
+    snapshotWanted(g7, 7), snapshotWanted(g7, 7, 49), snapshotWanted(g7, 7, 50), snapshotWanted(g7, 6, 10), snapshotWanted(null, 7),
+  ], [true, true, false, false, false]);
 
   const a = seededRand(42);
   const b = seededRand(42);
@@ -401,6 +406,41 @@ const aimPitch = (dist) => Math.atan2(1.1 - EYE_HEIGHT, dist);
   const draw = duel({ options: { minutes: 0.05 } });
   for (let i = 0; i < 200; i++) draw.step();
   check("level scores are a draw", [draw.sim.match.state, draw.sim.match.winner], ["over", null]);
+}
+{
+  // The host changes the map between matches.
+  const warehouse = getMap("warehouse");
+  const sim = createHostSim(map, "Host", { rand: seededRand(5), options: { teamSize: 2, killLimit: 1000 } });
+  const g = sim.add("guest");
+  check("a map that isn't one is refused", [sim.setNextMap(null), sim.setNextMap({ boxes: [] })], [false, false]);
+  check("picking the next map", [sim.setNextMap(warehouse), sim.matchState().nextMapId], [true, "warehouse"]);
+  for (let i = 0; i < 120; i++) tick(sim);
+  check("…doesn't change the match being played", [sim.map.id, sim.matchState().mapId, sim.match.state, sim.match.mapGen], ["arena", "arena", "playing", 0]);
+  sim.match.scores.a = 5;
+  check("the host can end the match early", [sim.endNow(), sim.endNow()], [true, false]);
+  check("…which nobody wins", [sim.match.state, sim.matchState().winner, sim.matchState().ended], ["over", null, "host"]);
+  for (let i = 0; i < INTERMISSION * 60 + 2; i++) tick(sim);
+  check("the next match is on the new map", [sim.match.state, sim.matchState().mapId, sim.matchState().mapGen, sim.matchState().ended], ["playing", "warehouse", 1, null]);
+  check("…and snapshots say so", sim.snapshotFor(g, 1).gen, 1);
+  const onSpawn = (p) => warehouse.teamSpawns[p.team].some(sp => Math.hypot(sp.pos[0] - p.body.pos[0], sp.pos[2] - p.body.pos[2]) < 0.5);
+  check("everyone starts at their team's spawns there", [...sim.players.values()].every(onSpawn), true);
+  check("nothing is left over from the old map", [sim.grenades().length, sim.dropList().length], [0, 0]);
+  const start = new Map([...sim.players.values()].map(p => [p.id, [...p.body.pos]]));
+  let inside = 0;
+  for (let i = 0; i < 60 * 40; i++) {
+    tick(sim);
+    if (i % 30 === 0) {
+      for (const p of sim.players.values()) {
+        if (!p.health.dead && overlapsAny(bodyBox(p.body.pos, { height: p.body.height }), warehouse.boxes)) inside++;
+      }
+    }
+  }
+  const bots = [...sim.players.values()].filter(p => p.bot);
+  check("bots find their way around the new map", bots.every(p => p.health.dead || dist(p.body.pos, start.get(p.id)) > 3 || p.deaths > 0), true);
+  check("…and nobody is inside its walls", inside, 0);
+  check("the same map again is not a change", [sim.setNextMap(warehouse), sim.endNow()], [true, true]);
+  for (let i = 0; i < INTERMISSION * 60 + 2; i++) tick(sim);
+  check("…so the generation stays", [sim.matchState().mapId, sim.matchState().mapGen], ["warehouse", 1]);
 }
 {
   // The weapon you ask for arrives with your next life.

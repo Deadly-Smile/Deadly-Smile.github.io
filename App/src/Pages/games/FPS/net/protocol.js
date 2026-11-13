@@ -124,7 +124,8 @@ function cursor(view, at) {
 }
 const clampInt = (x, lo, hi) => Math.max(lo, Math.min(hi, Math.round(x)));
 
-// snapshot: { tick, time (ms, host clock), ack, self, others, grenades }
+// snapshot: { tick, time (ms, host clock), ack, gen (map generation, u8),
+//             self, others, grenades }
 //   self:   { pos, vel, yaw, pitch, onGround, crouched, dead, hp, respawnIn,
 //             loadout }                                   exact
 //           loadout: { primary, active, previous, ammo: { primary: [mag,
@@ -137,11 +138,18 @@ const clampInt = (x, lo, hi) => Math.max(lo, Math.min(hi, Math.round(x)));
 // prediction replays from them, and a body resting flush against a wall must
 // not be nudged into it by rounding (which changes how the next step
 // collides), nor a shot land a tick early.
-export function encodeSnapshot({ tick, time, ack, self, others, grenades = [] }) {
+// Should a guest use this snapshot? Not if it is older than the newest one
+// used (the state channel is unordered), nor if it belongs to a map other
+// than the one loaded (`gen`; the roster that announces a map change travels
+// on the other channel, so either may arrive first).
+export const snapshotWanted = (snap, gen, latestTick = null) =>
+  !!snap && snap.gen === gen && (latestTick === null || snap.tick > latestTick);
+
+export function encodeSnapshot({ tick, time, ack, gen = 0, self, others, grenades = [] }) {
   const buf = new ArrayBuffer(HEADER_BYTES + SELF_BYTES + others.length * OTHER_BYTES + grenades.length * GRENADE_BYTES);
   const v = new DataView(buf);
   const c = cursor(v, 0);
-  c.u8(TYPE_SNAPSHOT); c.u8(others.length); c.u8(grenades.length); c.u8(0);
+  c.u8(TYPE_SNAPSHOT); c.u8(others.length); c.u8(grenades.length); c.u8(gen & 255);
   v.setUint32(4, tick); v.setUint32(8, Math.round(time)); v.setUint32(12, ack);
   const s = cursor(v, HEADER_BYTES);
   for (const x of self.pos) s.f64(x);
@@ -207,5 +215,5 @@ export function decodeSnapshot(buf) {
   }
   const grenades = [];
   for (let i = 0; i < ng; i++) grenades.push([o.ri16() / 100, o.ri16() / 100, o.ri16() / 100]);
-  return { tick: v.getUint32(4), time: v.getUint32(8), ack: v.getUint32(12), self, others, grenades };
+  return { tick: v.getUint32(4), time: v.getUint32(8), ack: v.getUint32(12), gen: v.getUint8(3), self, others, grenades };
 }

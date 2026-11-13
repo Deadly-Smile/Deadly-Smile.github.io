@@ -41,7 +41,6 @@ const BLOOD = 0xb91c1c;
 const NO_AUDIO = new Proxy({}, { get: () => () => {} });
 
 export function createNetGame({ map, view, input, getSettings, isPaused, models = null, audio = null, session }) {
-  session.setBoxes?.(map.boxes);
   const sfx = audio ?? NO_AUDIO;
   const player = session.body;
   const { loadout } = session;

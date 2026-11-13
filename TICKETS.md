@@ -281,7 +281,26 @@ Replace the box figures and box guns with open-source models. This overrides the
 - **Loadout at respawn:** the pause menu's "Primary for your next life" picker takes effect when you next respawn.
 - **HUD:** team scores and the clock at the top, your team named top left. Hold Tab for the scoreboard (kills, deaths, ping per player, bots marked); it also shows between matches with the result.
 - **Looks:** teammates wear the Soldier model and enemies the SWAT gear; on Low graphics the box figures are blue and orange.
-- **Not done:** the ticket's "host chooses the map" is only before hosting; there is no map change between matches without closing the room.
+- **Not done:** the ticket's "host chooses the map" is only before hosting; there is no map change between matches without closing the room. Picked up in FPS-11b.
+
+### FPS-11b: Change map between matches
+**Depends on:** FPS-11
+
+- **Host's menu** (multiplayer, host only): a "Next map" picker that applies when the next match starts (default: the current map), and "Change now", which ends the current match with no winner and goes to the intermission. The intermission scoreboard shows the next map.
+- **Host sim** (`net/hostSim.js`, pure): the map becomes switchable. `setNextMap(map)`, `changeMapNow()`. `newMatch()` applies a waiting map: rebuild the nav graph (when bots are on), point the bots' world at the new boxes, bump a `mapGen` counter (u8, wraps), clear grenades and drops, reset bots' paths (they hold waypoints of the old nav graph), respawn everyone at the new team spawns. `matchState()` carries `mapId`, `nextMapId`, `mapGen`.
+- **Snapshots carry `mapGen`** in the spare header byte (byte 3). Events and snapshots use different channels, so after a switch either can arrive first: a guest drops snapshots of a different generation than the map it has loaded, so prediction never replays against the old map's walls.
+- **Guest session:** when the roster says the map changed, it loads the new map's boxes itself (`getMap(id).boxes`, replacing `setBoxes`) and clears the interpolation buffer so nobody slides across the map from their old position.
+- **`FPS.jsx`:** the active map comes from the network HUD data (which re-renders when it changes), not from the session object (which never changes identity), so the map scene and the net game rebuild.
+
+**Acceptance:** in a 2v2 with bots the host switches Old Quarter → Warehouse; at the next match every guest's scene, collision and bots switch without leaving the room. Tests: the next map applies only at the new match; everyone respawns at the new team spawns, not inside boxes; drops and grenades are cleared; bots keep playing on the new map; `mapGen` round-trips; a guest ignores old-generation snapshots; "Change now" gives no team a win.
+
+**As built (2026-11-14):**
+- **Host's menu:** a "Next map" dropdown (the current map is marked) and a button that reads "End match and go to <map>" or, with the same map picked, "End match and restart". During the intermission it says when the next map starts instead. Picking a map without pressing the button changes it when the match ends normally.
+- **Ending early** shows "Match ended by the host" instead of a win, loss or draw. The intermission scoreboard says "Next match on <map> in N…" when the map is changing.
+- **Same map picked again** is not a change: `mapGen` stays put and nothing reloads.
+- **Guest gate:** `snapshotWanted(snap, gen, latestTick)` in `net/protocol.js` (pure, tested) decides whether a snapshot is used. The guest session loads the new map's boxes itself when the roster's `mapGen` changes and clears the interpolator (`interp.clear()`); `setBoxes` is gone.
+- **Verified in the browser** (two headless Chromium contexts, host and guest over PeerJS): the host switched Old Quarter → Warehouse with "End match and go to Warehouse"; after the intermission both the host and the guest were playing in the Warehouse, with no console errors.
+- **Not done:** automatic map rotation (a possible follow-up; one option and a line in `newMatch()`).
 
 ### FPS-12: In-game text chat
 **Depends on:** FPS-9
@@ -291,7 +310,13 @@ Replace the box figures and box guns with open-source models. This overrides the
 - Host limits: max length (e.g. 200 characters), rate limit per player, plain-text rendering only (no HTML).
 - Chat overlay fades after a few seconds and shows in full while typing. System messages (joined, left, team change) appear in the same feed.
 
-**Acceptance:** messages arrive in real time across browsers, and team messages never reach the other team (check the host relay logic in a test).
+**Plan (2026-11-13):**
+- **`net/chat.js` (pure):** `cleanChat(text)` strips control, zero-width and bidi-override characters (they can fake who said what), collapses whitespace, trims, cuts to 200 characters; non-strings and empty results are dropped. A per-player token bucket: a burst of 4, then one every 2 s; over the limit the sender alone gets "You're sending messages too fast."
+- **Host relay (`hostSim.js`):** `sim.chat(id, text, teamOnly)` takes the sender's name and team from the host's roster, never from the message. All-chat goes to everyone; team chat as one private event per human on the sender's team (the host included when on it), through the existing `{ to, msg }` queue. System messages (joined, left, switched team, match won, next map) go in the same feed; bots don't announce themselves.
+- **Sessions:** `sendChat(text, teamOnly)` on both: a guest sends `{ t: "chat", text, team }` over the reliable channel, the host calls the sim directly.
+- **Input and HUD:** multiplayer only, while playing. Opening chat clears held keys and queued presses; while typing, game keys and mouse buttons are ignored but mouse look and the match keep running. A React `<input maxLength={200}>`: Enter sends (empty Enter just closes). Esc always releases the pointer (the browser's rule), so it cancels the message and opens the menu like any Esc. If typing into a focused input under pointer lock turns out unreliable, release the lock while typing and relock on Enter (a key press counts as a user gesture). `netGame.js` keeps ~30 messages; the HUD shows the last ~6, each fading after ~8 s, all while typing. Names coloured by team, `[TEAM]` tag, rendered as React text only. Enter and Y added to the controls list.
+
+**Acceptance:** messages arrive in real time across browsers, and team messages never reach the other team (check the host relay logic in a test). Tests also cover: the sender's name comes from the host; 201 characters are cut to 200; control and bidi characters are stripped; spam is rate-limited; malformed messages are ignored; system messages on join, leave and team change.
 
 ---
 

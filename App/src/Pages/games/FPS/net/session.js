@@ -16,6 +16,8 @@
 //   roster / match            who's here (team, score, ping) and the match
 //                             (state, team scores, time left, winner)
 //   setTeam(t) / setPrimary(w)  ask to change sides / the next life's gun
+//   mapId                     the map being played; it can change between
+//                             matches (the host's setNextMap(id) / endNow())
 //   status()                  ping, link health
 //   close()
 //
@@ -26,10 +28,11 @@ import { openRoom, joinRoom } from "./room.js";
 import { createHostSim, cleanName, HOST_ID } from "./hostSim.js";
 import { createPredictor } from "./predict.js";
 import { createInterpolator } from "./interp.js";
-import { encodeCommands, decodeCommands, encodeSnapshot, decodeSnapshot, SNAPSHOT_HZ } from "./protocol.js";
+import { encodeCommands, decodeCommands, encodeSnapshot, decodeSnapshot, snapshotWanted, SNAPSHOT_HZ } from "./protocol.js";
 import { CROUCH_HEIGHT } from "../engine/player.js";
 import { BODY_HEIGHT } from "../engine/geometry.js";
 import { activeWeapon } from "../engine/weapons.js";
+import { MAPS, getMap } from "../maps/index.js";
 
 const TICKS_PER_SNAPSHOT = Math.round(60 / SNAPSHOT_HZ);
 const PING_EVERY_MS = 2000;
@@ -94,7 +97,9 @@ export async function hostSession({ map, name, primary, options }) {
     role: "host",
     roomId: room.roomId,
     selfId: HOST_ID,
-    mapId: map.id,
+    get mapId() { return sim.map.id; },
+    setNextMap: (id) => MAPS.some(m => m.id === id) && sim.setNextMap(getMap(id)),
+    endNow: () => sim.endNow(),
     body: me.body,
     loadout: me.loadout,
     get roster() { return sim.roster(); },
@@ -142,7 +147,9 @@ export async function joinSession({ roomId, name, primary, onClosed }) {
   const code = String(roomId).trim().toUpperCase();
   const interp = createInterpolator();
   let predictor = null;
-  let boxes = null;
+  let boxes = null;        // the walls of the map being played…
+  let mapId = null;
+  let gen = null;          // …and its generation (see hostSim.js's mapGen)
   let roster = [];
   let match = NO_MATCH;
   let inbox = [];
@@ -156,14 +163,13 @@ export async function joinSession({ roomId, name, primary, onClosed }) {
     onEvent(msg) {
       if (msg.t === "roster" && Array.isArray(msg.players)) {
         roster = msg.players;
-        if (msg.match) match = msg.match;
+        if (msg.match) setMatch(msg.match);
       } else if (msg.t === "pong") ping = Math.round(performance.now() - msg.c);
       else inbox.push(msg);
     },
     onState(buf) {
       const snap = decodeSnapshot(buf);
-      // Unordered channel: an older snapshot can arrive after a newer one.
-      if (!snap || !predictor || !boxes || (latest && snap.tick <= latest.tick)) return;
+      if (!predictor || !boxes || !snapshotWanted(snap, gen, latest?.tick ?? null)) return;
       latest = snap;
       const now = performance.now();
       lastSnapshot = now;
@@ -179,9 +185,22 @@ export async function joinSession({ roomId, name, primary, onClosed }) {
     },
   });
 
+  // The match as the host reports it; a new map generation means the map
+  // changed: load its walls and forget where everyone was on the old one.
+  function setMatch(m) {
+    match = m;
+    const g = m.mapGen ?? 0;
+    if (g === gen) return;
+    gen = g;
+    mapId = getMap(m.mapId ?? mapId).id;
+    boxes = getMap(mapId).boxes;
+    interp.clear();
+  }
+
   const { welcome } = link;
   roster = welcome.players ?? [];
-  match = welcome.match ?? NO_MATCH;
+  mapId = welcome.map;
+  setMatch(welcome.match ?? NO_MATCH);
   if (Array.isArray(welcome.drops)) inbox.push({ t: "drops", list: welcome.drops });
   predictor = createPredictor(welcome.id, welcome.spawn, primary);
   const pinger = setInterval(() => {
@@ -198,15 +217,13 @@ export async function joinSession({ roomId, name, primary, onClosed }) {
     role: "guest",
     roomId: code,
     selfId: welcome.id,
-    mapId: welcome.map,
+    get mapId() { return mapId; },
     body: predictor.body,
     loadout: predictor.loadout,
     get roster() { return roster; },
     get match() { return match; },
     setTeam: (team) => link.sendEvent({ t: "team", team }),
     setPrimary: (weapon) => link.sendEvent({ t: "primary", weapon }),
-    // The map's boxes, once the game has loaded the map the host chose.
-    setBoxes(b) { boxes = b; },
     step(cmd) {
       const out = predictor.step({ ...cmd, view: interp.renderTime(performance.now()) ?? 0 }, boxes);
       link.sendState(encodeCommands(out.packet));

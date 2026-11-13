@@ -19,7 +19,8 @@
 // The match is Team Deathmatch: two teams, bots (engine/ai.js, the same
 // brains as single-player) filling each team up to its size and making way
 // when people join, first team to the kill limit or ahead when time runs
-// out wins, then a short intermission and a fresh match.
+// out wins, then a short intermission and a fresh match. The host can pick
+// the next match's map at any time; it takes over when that match starts.
 // Pure: no PeerJS/DOM. What should be told to whom is queued in `events`.
 import { createPlayer, eyeHeight } from "../engine/player.js";
 import { createLoadout, activeWeapon, WEAPONS } from "../engine/weapons.js";
@@ -53,14 +54,20 @@ const THROW_LIFT = 0.18;     // grenades leave the hand a little above the aim l
 
 export const cleanName = (name) => String(name ?? "").replace(/[^\p{L}\p{N} _.-]/gu, "").trim().slice(0, NAME_MAX) || "Player";
 
-export function createHostSim(map, hostName, { hostPrimary, rand = Math.random, options = {} } = {}) {
+export function createHostSim(firstMap, hostName, { hostPrimary, rand = Math.random, options = {} } = {}) {
   const opts = { ...DEFAULT_OPTIONS, ...options };
   opts.teamSize = Math.max(1, Math.min(TEAM_MAX, Math.round(opts.teamSize)));
-  const nav = opts.bots ? buildNavGraph(map) : null;
-  const botWorld = { boxes: map.boxes, nav, actors: [] };
+  let map = firstMap;
+  let nextMap = firstMap;   // the map the next match is played on
+  const botWorld = { boxes: map.boxes, nav: opts.bots ? buildNavGraph(map) : null, actors: [] };
   const players = new Map();
-  // "playing" until a team wins, then "over" for INTERMISSION seconds.
-  const match = { state: "playing", timeLeft: opts.minutes * 60, scores: { a: 0, b: 0 }, winner: null, restartIn: 0 };
+  // "playing" until a team wins (or the host ends it), then "over" for
+  // INTERMISSION seconds. `mapGen` counts map changes (0–255, wrapping): it
+  // goes out in every snapshot so a guest can tell which map one belongs to.
+  const match = {
+    state: "playing", timeLeft: opts.minutes * 60, scores: { a: 0, b: 0 }, winner: null, restartIn: 0,
+    ended: null, mapGen: 0,
+  };
   let botSeq = 0;
   let sinceRoster = 0;
   const events = [];   // { to: player id, or null for everyone; msg }
@@ -174,15 +181,23 @@ export function createHostSim(map, hostName, { hostPrimary, rand = Math.random, 
     p.queue.length = 0;
   }
 
-  function endMatch(winner) {
+  // `ended`: "score" (kill limit or time) or "host" (ended early by the host).
+  function endMatch(winner, ended = "score") {
     match.state = "over";
     match.winner = winner;
+    match.ended = ended;
     match.restartIn = INTERMISSION;
     dirty.roster = true;
   }
 
   function newMatch() {
-    Object.assign(match, { state: "playing", timeLeft: opts.minutes * 60, scores: { a: 0, b: 0 }, winner: null, restartIn: 0 });
+    Object.assign(match, { state: "playing", timeLeft: opts.minutes * 60, scores: { a: 0, b: 0 }, winner: null, restartIn: 0, ended: null });
+    if (nextMap !== map) {
+      map = nextMap;
+      botWorld.boxes = map.boxes;
+      botWorld.nav = opts.bots ? buildNavGraph(map) : null;
+      match.mapGen = (match.mapGen + 1) & 255;
+    }
     grenades = [];
     drops = [];
     for (const p of players.values()) {
@@ -328,10 +343,25 @@ export function createHostSim(map, hostName, { hostPrimary, rand = Math.random, 
     },
     options: opts,
     match,
+    get map() { return map; },
+    // The map the next match is played on (the current one by default).
+    setNextMap(m) {
+      if (!m?.boxes || !m.teamSpawns?.a?.length || !m.teamSpawns?.b?.length) return false;
+      nextMap = m;
+      dirty.roster = true;
+      return true;
+    },
+    // End the match now, with no winner: the intermission, then the next map.
+    endNow() {
+      if (match.state !== "playing") return false;
+      endMatch(null, "host");
+      return true;
+    },
     roster: () => [...players.values()].map(p => ({ id: p.id, name: p.name, team: p.team, bot: p.bot, kills: p.kills, deaths: p.deaths, ping: p.ping })),
     matchState: () => ({
       state: match.state, timeLeft: Math.max(0, Math.ceil(match.timeLeft)), scores: { ...match.scores },
       winner: match.winner, restartIn: Math.ceil(match.restartIn), killLimit: opts.killLimit,
+      ended: match.ended, mapId: map.id, nextMapId: nextMap.id, mapGen: match.mapGen,
     }),
     // A person changes sides (if there's room): they respawn with their new team.
     setTeam(id, team) {
@@ -481,7 +511,7 @@ export function createHostSim(map, hostName, { hostPrimary, rand = Math.random, 
       }
       const b = me.body;
       return {
-        tick, time: now, ack: me.lastSeq,
+        tick, time: now, ack: me.lastSeq, gen: match.mapGen,
         self: {
           pos: b.pos, vel: b.vel, yaw: b.yaw, pitch: b.pitch, onGround: b.onGround, crouched: b.crouched,
           dead: me.health.dead, hp: me.health.hp, respawnIn: Math.max(0, me.respawnIn), loadout: loadoutState(me.loadout),
