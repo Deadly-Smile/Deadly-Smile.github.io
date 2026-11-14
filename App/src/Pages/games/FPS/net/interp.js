@@ -44,6 +44,8 @@ export function createInterpolator(delay = DELAY_MS) {
       return out;
     },
     forget: (id) => tracks.delete(id),
+    // Forget everyone (the map changed: old positions mean nothing now).
+    clear: () => tracks.clear(),
     // Player `id` at host time `t` → { pos, vel, yaw, pitch, onGround, crouched } or null.
     sample(id, t) {
       const track = tracks.get(id);

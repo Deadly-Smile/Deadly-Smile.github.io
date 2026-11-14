@@ -37,11 +37,15 @@ const DAMAGE_DIR_TIME = 1.2;
 const MUZZLE_FLASH = 0.06;
 const STRIDE = { walk: 1.7, sprint: 2.3, crouch: 1.2 };
 const BLOOD = 0xb91c1c;
+const CHAT_KEEP = 30;    // lines kept
+const CHAT_SHOW = 8;     // lines the HUD shows
+const CHAT_FRESH = 8;    // s a line stays on screen (all show while typing)
 // Silent stand-in when there's no audio (see audio.js for the real thing).
 const NO_AUDIO = new Proxy({}, { get: () => () => {} });
 
-export function createNetGame({ map, view, input, getSettings, isPaused, models = null, audio = null, session }) {
-  session.setBoxes?.(map.boxes);
+// `chatLog`: an array owned by the caller, so chat survives this object
+// being rebuilt (it is, when the map changes); one per session.
+export function createNetGame({ map, view, input, getSettings, isPaused, models = null, audio = null, session, chatLog = [] }) {
   const sfx = audio ?? NO_AUDIO;
   const player = session.body;
   const { loadout } = session;
@@ -139,6 +143,12 @@ export function createNetGame({ map, view, input, getSettings, isPaused, models 
         sfx.pickup();
       } else if (m.t === "drops") {
         drops = m.list.map(d => ({ ...d, ttl: 99 }));
+      } else if (m.t === "chat" && typeof m.text === "string") {
+        chatLog.push({
+          id: (chatLog.at(-1)?.id ?? 0) + 1, at: performance.now(), system: !!m.system, text: m.text,
+          from: m.from, name: String(m.name ?? ""), team: m.team, scope: m.scope === "team" ? "team" : "all",
+        });
+        if (chatLog.length > CHAT_KEEP) chatLog.splice(0, chatLog.length - CHAT_KEEP);
       }
     }
   }
@@ -294,6 +304,10 @@ export function createNetGame({ map, view, input, getSettings, isPaused, models 
           id, angle: Math.round((relativeAngle(player.pos, player.yaw, from) * 180) / Math.PI / 5) * 5,
         })),
         banner: { n: 0, text: "" },
+        chat: chatLog.slice(-CHAT_SHOW).map(c => ({
+          id: c.id, system: c.system, text: c.text, name: c.name, team: c.team, scope: c.scope,
+          self: c.from === session.selfId, fresh: performance.now() - c.at < CHAT_FRESH * 1000,
+        })),
         message: message.left > 0 ? { n: message.n, text: message.text } : null,
         prompt: gun ? `E — take ${WEAPONS[gun.weapon].name}` : null,
         weapon: w.name,

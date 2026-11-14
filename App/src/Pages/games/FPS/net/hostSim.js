@@ -19,7 +19,10 @@
 // The match is Team Deathmatch: two teams, bots (engine/ai.js, the same
 // brains as single-player) filling each team up to its size and making way
 // when people join, first team to the kill limit or ahead when time runs
-// out wins, then a short intermission and a fresh match.
+// out wins, then a short intermission and a fresh match. The host can pick
+// the next match's map at any time; it takes over when that match starts.
+// Text chat is relayed here too (rules in chat.js), with system lines for
+// joins, leaves, team changes, match results and map changes.
 // Pure: no PeerJS/DOM. What should be told to whom is queued in `events`.
 import { createPlayer, eyeHeight } from "../engine/player.js";
 import { createLoadout, activeWeapon, WEAPONS } from "../engine/weapons.js";
@@ -34,6 +37,7 @@ import { buildNavGraph } from "../engine/nav.js";
 import { STEP } from "../engine/loop.js";
 import { MAX_PLAYERS } from "./protocol.js";
 import { runCommand, direction, loadoutState } from "./command.js";
+import { cleanChat, createRateLimiter, TEAM_NAMES } from "./chat.js";
 
 export const HOST_ID = 0;
 export const RESPAWN_DELAY = 3;      // s dead before respawning
@@ -53,14 +57,20 @@ const THROW_LIFT = 0.18;     // grenades leave the hand a little above the aim l
 
 export const cleanName = (name) => String(name ?? "").replace(/[^\p{L}\p{N} _.-]/gu, "").trim().slice(0, NAME_MAX) || "Player";
 
-export function createHostSim(map, hostName, { hostPrimary, rand = Math.random, options = {} } = {}) {
+export function createHostSim(firstMap, hostName, { hostPrimary, rand = Math.random, options = {} } = {}) {
   const opts = { ...DEFAULT_OPTIONS, ...options };
   opts.teamSize = Math.max(1, Math.min(TEAM_MAX, Math.round(opts.teamSize)));
-  const nav = opts.bots ? buildNavGraph(map) : null;
-  const botWorld = { boxes: map.boxes, nav, actors: [] };
+  let map = firstMap;
+  let nextMap = firstMap;   // the map the next match is played on
+  const botWorld = { boxes: map.boxes, nav: opts.bots ? buildNavGraph(map) : null, actors: [] };
   const players = new Map();
-  // "playing" until a team wins, then "over" for INTERMISSION seconds.
-  const match = { state: "playing", timeLeft: opts.minutes * 60, scores: { a: 0, b: 0 }, winner: null, restartIn: 0 };
+  // "playing" until a team wins (or the host ends it), then "over" for
+  // INTERMISSION seconds. `mapGen` counts map changes (0–255, wrapping): it
+  // goes out in every snapshot so a guest can tell which map one belongs to.
+  const match = {
+    state: "playing", timeLeft: opts.minutes * 60, scores: { a: 0, b: 0 }, winner: null, restartIn: 0,
+    ended: null, mapGen: 0,
+  };
   let botSeq = 0;
   let sinceRoster = 0;
   const events = [];   // { to: player id, or null for everyone; msg }
@@ -71,6 +81,10 @@ export function createHostSim(map, hostName, { hostPrimary, rand = Math.random, 
   let dirty = { roster: false, drops: false };
 
   const tell = (to, msg) => events.push({ to, msg });
+  const limiter = createRateLimiter();
+  let started = false;   // the host is in: from now on joins are announced
+  // A line from the game itself, to everyone (or one player).
+  const system = (text, to = null) => tell(to, { t: "chat", system: true, text });
   const alive = () => [...players.values()].filter(p => !p.health.dead);
 
   // The team's spawn farthest from every living enemy.
@@ -153,9 +167,11 @@ export function createHostSim(map, hostName, { hostPrimary, rand = Math.random, 
     tag(p);
     players.set(id, p);
     fillBots();
+    if (started) system(`${p.name} joined ${TEAM_NAMES[team]}.`);
     return id;
   }
   add(hostName, hostPrimary);
+  started = true;
 
   // Same body object, fresh contents (others hold references).
   function respawn(p) {
@@ -174,15 +190,26 @@ export function createHostSim(map, hostName, { hostPrimary, rand = Math.random, 
     p.queue.length = 0;
   }
 
-  function endMatch(winner) {
+  // `ended`: "score" (kill limit or time) or "host" (ended early by the host).
+  function endMatch(winner, ended = "score") {
     match.state = "over";
     match.winner = winner;
+    match.ended = ended;
+    system(ended === "host" ? "The host ended the match."
+      : winner === null ? "The match is a draw." : `${TEAM_NAMES[winner]} wins the match.`);
     match.restartIn = INTERMISSION;
     dirty.roster = true;
   }
 
   function newMatch() {
-    Object.assign(match, { state: "playing", timeLeft: opts.minutes * 60, scores: { a: 0, b: 0 }, winner: null, restartIn: 0 });
+    Object.assign(match, { state: "playing", timeLeft: opts.minutes * 60, scores: { a: 0, b: 0 }, winner: null, restartIn: 0, ended: null });
+    if (nextMap !== map) {
+      map = nextMap;
+      botWorld.boxes = map.boxes;
+      botWorld.nav = opts.bots ? buildNavGraph(map) : null;
+      match.mapGen = (match.mapGen + 1) & 255;
+      system(`Now playing ${map.name}.`);
+    }
     grenades = [];
     drops = [];
     for (const p of players.values()) {
@@ -322,16 +349,35 @@ export function createHostSim(map, hostName, { hostPrimary, rand = Math.random, 
     events,
     add,
     remove(id) {
-      if (id === HOST_ID || players.get(id)?.bot !== false) return;
+      const p = players.get(id);
+      if (id === HOST_ID || p?.bot !== false) return;
       players.delete(id);
+      limiter.forget(id);
       fillBots();
+      system(`${p.name} left.`);
     },
     options: opts,
     match,
+    get map() { return map; },
+    // The map the next match is played on (the current one by default).
+    setNextMap(m) {
+      if (!m?.boxes || !m.teamSpawns?.a?.length || !m.teamSpawns?.b?.length) return false;
+      if (m !== nextMap) system(m === map ? `Staying on ${map.name}.` : `Next map: ${m.name}.`);
+      nextMap = m;
+      dirty.roster = true;
+      return true;
+    },
+    // End the match now, with no winner: the intermission, then the next map.
+    endNow() {
+      if (match.state !== "playing") return false;
+      endMatch(null, "host");
+      return true;
+    },
     roster: () => [...players.values()].map(p => ({ id: p.id, name: p.name, team: p.team, bot: p.bot, kills: p.kills, deaths: p.deaths, ping: p.ping })),
     matchState: () => ({
       state: match.state, timeLeft: Math.max(0, Math.ceil(match.timeLeft)), scores: { ...match.scores },
       winner: match.winner, restartIn: Math.ceil(match.restartIn), killLimit: opts.killLimit,
+      ended: match.ended, mapId: map.id, nextMapId: nextMap.id, mapGen: match.mapGen,
     }),
     // A person changes sides (if there's room): they respawn with their new team.
     setTeam(id, team) {
@@ -344,6 +390,23 @@ export function createHostSim(map, hostName, { hostPrimary, rand = Math.random, 
       tag(p);
       respawn(p);
       fillBots();
+      system(`${p.name} switched to ${TEAM_NAMES[team]}.`);
+      return true;
+    },
+    // A chat line from person `id`: to everyone, or (`teamOnly`) to the
+    // people on their team. Name and team come from here, not the message.
+    chat(id, text, teamOnly = false) {
+      const p = players.get(id);
+      if (!p || p.bot) return false;
+      const clean = cleanChat(text);
+      if (!clean) return false;
+      if (!limiter.allow(id, now)) {
+        system("You're sending messages too fast.", id);
+        return false;
+      }
+      const msg = { t: "chat", from: id, name: p.name, team: p.team, scope: teamOnly === true ? "team" : "all", text: clean };
+      if (msg.scope === "all") tell(null, msg);
+      else for (const q of players.values()) if (!q.bot && q.team === p.team) tell(q.id, msg);
       return true;
     },
     // The primary a person will carry from their next respawn.
@@ -481,7 +544,7 @@ export function createHostSim(map, hostName, { hostPrimary, rand = Math.random, 
       }
       const b = me.body;
       return {
-        tick, time: now, ack: me.lastSeq,
+        tick, time: now, ack: me.lastSeq, gen: match.mapGen,
         self: {
           pos: b.pos, vel: b.vel, yaw: b.yaw, pitch: b.pitch, onGround: b.onGround, crouched: b.crouched,
           dead: me.health.dead, hp: me.health.hp, respawnIn: Math.max(0, me.respawnIn), loadout: loadoutState(me.loadout),

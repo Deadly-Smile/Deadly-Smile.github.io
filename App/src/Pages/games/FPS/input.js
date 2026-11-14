@@ -4,6 +4,11 @@
 // most laptops silence while a key is held, and keyboard-only play). Nothing
 // is read unless the pointer is locked to the game, so typing elsewhere on
 // the page never moves the player.
+//
+// Chat (multiplayer): Enter / Y ask `onChatKey("all" | "team")` to open the
+// chat box. While typing (setTyping(true)) keys and mouse buttons do nothing
+// in the game — only mouse look carries on — and keys typed into any text
+// field are never read as game keys.
 const BINDINGS = {
   forward: ["KeyW"],
   back: ["KeyS"],
@@ -16,9 +21,12 @@ const BINDINGS = {
 const PREVENT = new Set(["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Slash", "Quote", "Tab"]);
 // Some browsers report one huge spurious movement right after locking.
 const MAX_MOUSE_JUMP = 400;
+const CHAT_KEYS = { Enter: "all", NumpadEnter: "all", KeyY: "team" };
+const editable = (el) => el instanceof HTMLElement && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
 
-export function createInput(lockTarget, { onLockChange, onLockError } = {}) {
+export function createInput(lockTarget, { onLockChange, onLockError, onChatKey } = {}) {
   const down = new Set();
+  let typing = false;
   let jumpQueued = false; // a key press, not a held key: one jump per press
   let useQueued = false;  // E: pick something up
   let dx = 0;
@@ -46,7 +54,12 @@ export function createInput(lockTarget, { onLockChange, onLockError } = {}) {
   };
 
   const onKeyDown = (e) => {
-    if (!isLocked()) return;
+    if (!isLocked() || typing || editable(e.target)) return;
+    // Opening chat: no default either, or the key would land in the box.
+    if (!e.repeat && CHAT_KEYS[e.code] && onChatKey?.(CHAT_KEYS[e.code])) {
+      e.preventDefault();
+      return;
+    }
     if (PREVENT.has(e.code)) e.preventDefault();
     if (!e.repeat) {
       if (e.code === "Space") jumpQueued = true;
@@ -59,6 +72,8 @@ export function createInput(lockTarget, { onLockChange, onLockError } = {}) {
   };
   const onMouseDown = (e) => {
     if (!isLocked()) return;
+    // A click mustn't fire, nor take the focus away from the chat box.
+    if (typing) return e.preventDefault();
     if (e.button === 0) fireHeld = fireQueued = true;
     else if (e.button === 2) adsHeld = true;
   };
@@ -116,6 +131,15 @@ export function createInput(lockTarget, { onLockChange, onLockError } = {}) {
       slotQueued = null;
       scroll = 0;
       return state;
+    },
+    // The chat box is open: let go of everything held, ignore game keys.
+    setTyping(on) {
+      typing = !!on;
+      if (typing) {
+        const [x, y] = [dx, dy];
+        reset();
+        [dx, dy] = [x, y];
+      }
     },
     // Tab held: show the scoreboard.
     scoreboard: () => down.has("Tab"),

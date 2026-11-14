@@ -4,7 +4,7 @@
 // simulated slow, lossy link. Run with:
 //   node src/Pages/games/FPS/net/net.test.js
 import {
-  encodeCommands, decodeCommands, encodeSnapshot, decodeSnapshot, packKeys, unpackKeys, MAX_PLAYERS, CMD_REDUNDANCY,
+  encodeCommands, decodeCommands, encodeSnapshot, decodeSnapshot, packKeys, unpackKeys, snapshotWanted, MAX_PLAYERS, CMD_REDUNDANCY,
 } from "./protocol.js";
 import { createHostSim, cleanName, HOST_ID, RESPAWN_DELAY, SPAWN_PROTECTION, INTERMISSION } from "./hostSim.js";
 import { seededRand, loadoutState } from "./command.js";
@@ -14,6 +14,7 @@ import { perimeter, spawn } from "../maps/build.js";
 import { createPredictor } from "./predict.js";
 import { createInterpolator, DELAY_MS } from "./interp.js";
 import { getMap } from "../maps/index.js";
+import { cleanChat, createRateLimiter, CHAT_MAX, CHAT_BURST, CHAT_REFILL_S } from "./chat.js";
 
 let failures = 0;
 function check(name, actual, expected) {
@@ -78,6 +79,11 @@ const SELF = {
   check("grenades to the centimetre", back.grenades, [[1.25, 0.08, -3.5]]);
   check("7 other players and a grenade fit in under 230 bytes", encodeSnapshot({ ...snap, others: Array(7).fill(snap.others[0]) }).byteLength < 230, true);
   check("a truncated snapshot is rejected", decodeSnapshot(encodeSnapshot(snap).slice(0, 90)), null);
+  check("the map generation round-trips (and wraps at a byte)", [back.gen, decodeSnapshot(encodeSnapshot({ ...snap, gen: 7 })).gen, decodeSnapshot(encodeSnapshot({ ...snap, gen: 256 })).gen], [0, 7, 0]);
+  const g7 = { tick: 50, gen: 7 };
+  check("a guest takes newer snapshots of the loaded map only", [
+    snapshotWanted(g7, 7), snapshotWanted(g7, 7, 49), snapshotWanted(g7, 7, 50), snapshotWanted(g7, 6, 10), snapshotWanted(null, 7),
+  ], [true, true, false, false, false]);
 
   const a = seededRand(42);
   const b = seededRand(42);
@@ -403,6 +409,41 @@ const aimPitch = (dist) => Math.atan2(1.1 - EYE_HEIGHT, dist);
   check("level scores are a draw", [draw.sim.match.state, draw.sim.match.winner], ["over", null]);
 }
 {
+  // The host changes the map between matches.
+  const warehouse = getMap("warehouse");
+  const sim = createHostSim(map, "Host", { rand: seededRand(5), options: { teamSize: 2, killLimit: 1000 } });
+  const g = sim.add("guest");
+  check("a map that isn't one is refused", [sim.setNextMap(null), sim.setNextMap({ boxes: [] })], [false, false]);
+  check("picking the next map", [sim.setNextMap(warehouse), sim.matchState().nextMapId], [true, "warehouse"]);
+  for (let i = 0; i < 120; i++) tick(sim);
+  check("…doesn't change the match being played", [sim.map.id, sim.matchState().mapId, sim.match.state, sim.match.mapGen], ["arena", "arena", "playing", 0]);
+  sim.match.scores.a = 5;
+  check("the host can end the match early", [sim.endNow(), sim.endNow()], [true, false]);
+  check("…which nobody wins", [sim.match.state, sim.matchState().winner, sim.matchState().ended], ["over", null, "host"]);
+  for (let i = 0; i < INTERMISSION * 60 + 2; i++) tick(sim);
+  check("the next match is on the new map", [sim.match.state, sim.matchState().mapId, sim.matchState().mapGen, sim.matchState().ended], ["playing", "warehouse", 1, null]);
+  check("…and snapshots say so", sim.snapshotFor(g, 1).gen, 1);
+  const onSpawn = (p) => warehouse.teamSpawns[p.team].some(sp => Math.hypot(sp.pos[0] - p.body.pos[0], sp.pos[2] - p.body.pos[2]) < 0.5);
+  check("everyone starts at their team's spawns there", [...sim.players.values()].every(onSpawn), true);
+  check("nothing is left over from the old map", [sim.grenades().length, sim.dropList().length], [0, 0]);
+  const start = new Map([...sim.players.values()].map(p => [p.id, [...p.body.pos]]));
+  let inside = 0;
+  for (let i = 0; i < 60 * 40; i++) {
+    tick(sim);
+    if (i % 30 === 0) {
+      for (const p of sim.players.values()) {
+        if (!p.health.dead && overlapsAny(bodyBox(p.body.pos, { height: p.body.height }), warehouse.boxes)) inside++;
+      }
+    }
+  }
+  const bots = [...sim.players.values()].filter(p => p.bot);
+  check("bots find their way around the new map", bots.every(p => p.health.dead || dist(p.body.pos, start.get(p.id)) > 3 || p.deaths > 0), true);
+  check("…and nobody is inside its walls", inside, 0);
+  check("the same map again is not a change", [sim.setNextMap(warehouse), sim.endNow()], [true, true]);
+  for (let i = 0; i < INTERMISSION * 60 + 2; i++) tick(sim);
+  check("…so the generation stays", [sim.matchState().mapId, sim.matchState().mapGen], ["warehouse", 1]);
+}
+{
   // The weapon you ask for arrives with your next life.
   const { sim, host, guest, step, settle } = duel();
   sim.setPrimary(guest.id, "shotgun");
@@ -434,6 +475,68 @@ const aimPitch = (dist) => Math.atan2(1.1 - EYE_HEIGHT, dist);
   check("team scores equal the kills made", a + b, sim.roster().reduce((n, p) => n + p.kills, 0));
   check("nobody ends up inside a wall", inside, 0);
   check("bots shoot, with weapons others can see", sim.roster().some(p => p.bot && sim.players.get(p.id).shots > 0), true);
+}
+
+// ─── Chat ────────────────────────────────────────────────────────────────────
+{
+  check("chat text is trimmed and its whitespace collapsed", cleanChat("  hello \n\n  there\t "), "hello there");
+  check("…cut to the limit", [cleanChat("x".repeat(CHAT_MAX + 1)).length, cleanChat("😀".repeat(CHAT_MAX + 5))], [CHAT_MAX, "😀".repeat(CHAT_MAX)]);
+  check("…without control, zero-width or bidi-override characters", cleanChat("a\u0000b\u200Bc\u202Edcba\u202C\u0007"), "abcdcba");
+  check("…and HTML stays text", cleanChat("<img src=x onerror=alert(1)>"), "<img src=x onerror=alert(1)>");
+  check("non-text and blank messages are nothing", [cleanChat(42), cleanChat(null), cleanChat({ text: "hi" }), cleanChat(" \u200B ")], ["", "", "", ""]);
+
+  const lim = createRateLimiter();
+  const burst = Array.from({ length: CHAT_BURST + 1 }, () => lim.allow(1, 0));
+  check("a burst is allowed, then the rate limit kicks in", burst, [...Array(CHAT_BURST).fill(true), false]);
+  check("…one more after the refill time; others aren't affected", [lim.allow(1, CHAT_REFILL_S * 1000 - 10), lim.allow(1, CHAT_REFILL_S * 1000), lim.allow(2, 0)], [false, true, true]);
+
+  // The host relays: who gets what.
+  const sim = createHostSim(map, "Host", { options: { teamSize: 4 } }); // bots on both sides
+  const blue = sim.add("Bea", "rifle", "a");
+  const orange = sim.add("Oli", "rifle", "b");
+  const orange2 = sim.add("Ora", "rifle", "b");
+  tick(sim);
+  sim.events.length = 0;
+  const chats = () => {
+    const out = sim.events.filter(e => e.msg.t === "chat");
+    sim.events.length = 0;
+    return out;
+  };
+  check("all-chat goes to everyone at once", [sim.chat(blue, "gg all"), chats().map(e => [e.to, e.msg.name, e.msg.team, e.msg.scope, e.msg.text])],
+    [true, [[null, "Bea", "a", "all", "gg all"]]]);
+  sim.chat(orange, "push B", true);
+  const team = chats();
+  check("team chat goes only to the people on that team", team.map(e => e.to).sort(), [orange, orange2].sort());
+  check("…never to the other team, the host or a bot", team.some(e => e.to === HOST_ID || e.to === blue || e.to === null || sim.players.get(e.to).bot), false);
+  sim.chat(blue, "with the host", true);
+  check("the host gets team chat when on that team", chats().map(e => e.to).sort(), [HOST_ID, blue].sort());
+  sim.chat(orange, { name: "Host", text: "spoof" });
+  sim.chat(orange, "<b>hi</b>", "yes");
+  check("the name and team come from the host; only `true` means team", chats().map(e => [e.to, e.msg.name, e.msg.from, e.msg.scope, e.msg.text]),
+    [[null, "Oli", orange, "all", "<b>hi</b>"]]);
+  const bot = sim.roster().find(p => p.bot);
+  check("bots and strangers can't chat", [!!bot, sim.chat(bot.id, "beep"), sim.chat(99, "hi"), chats().length], [true, false, false, 0]);
+  for (let i = 0; i < CHAT_BURST + 2; i++) sim.chat(orange2, `spam ${i}`);
+  const spam = chats();
+  check("spam is limited; the spammer alone is told", [spam.filter(e => !e.msg.system).length, spam.filter(e => e.msg.system).map(e => e.to)],
+    [CHAT_BURST, [orange2, orange2]]);
+  for (let i = 0; i < CHAT_REFILL_S * 60 + 2; i++) tick(sim);
+  sim.events.length = 0;
+  check("…and can talk again after a while", [sim.chat(orange2, "sorry"), chats().length], [true, 1]);
+
+  const lines = () => chats().filter(e => e.msg.system).map(e => [e.to, e.msg.text]);
+  sim.add("Nia", "smg", "a");
+  check("a join is announced to everyone (the bot making way says nothing)", lines(), [[null, "Nia joined Blue."]]);
+  sim.setTeam(blue, "b");
+  check("so is a change of team", lines(), [[null, "Bea switched to Orange."]]);
+  sim.remove(orange);
+  check("and someone leaving", lines(), [[null, "Oli left."]]);
+  sim.setNextMap(getMap("warehouse"));
+  check("and the next map", lines(), [[null, "Next map: Warehouse."]]);
+  sim.endNow();
+  check("and the end of a match", lines(), [[null, "The host ended the match."]]);
+  for (let i = 0; i < INTERMISSION * 60 + 2; i++) tick(sim);
+  check("and the new map", lines(), [[null, "Now playing Warehouse."]]);
 }
 
 // ─── Prediction over a perfect link ──────────────────────────────────────────
