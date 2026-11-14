@@ -16,6 +16,8 @@
 //   roster / match            who's here (team, score, ping) and the match
 //                             (state, team scores, time left, winner)
 //   setTeam(t) / setPrimary(w)  ask to change sides / the next life's gun
+//   sendChat(text, teamOnly)  a chat line; it comes back through drain()
+//                             as { t: "chat", … } once the host relays it
 //   mapId                     the map being played; it can change between
 //                             matches (the host's setNextMap(id) / endNow())
 //   status()                  ping, link health
@@ -74,6 +76,7 @@ export async function hostSession({ map, name, primary, options }) {
         sim.setPing(id, msg.rtt);
       } else if (msg.t === "team") sim.setTeam(id, msg.team);
       else if (msg.t === "primary") sim.setPrimary(id, msg.weapon);
+      else if (msg.t === "chat") sim.chat(id, msg.text, msg.team === true);
     },
     onState(key, buf) {
       const cmds = decodeCommands(buf);
@@ -106,6 +109,7 @@ export async function hostSession({ map, name, primary, options }) {
     get match() { return sim.matchState(); },
     setTeam: (team) => sim.setTeam(HOST_ID, team),
     setPrimary: (weapon) => sim.setPrimary(HOST_ID, weapon),
+    sendChat: (text, teamOnly) => sim.chat(HOST_ID, text, !!teamOnly),
     step(cmd) {
       const time = performance.now() - started;
       const out = sim.tick(cmd, time);
@@ -224,6 +228,7 @@ export async function joinSession({ roomId, name, primary, onClosed }) {
     get match() { return match; },
     setTeam: (team) => link.sendEvent({ t: "team", team }),
     setPrimary: (weapon) => link.sendEvent({ t: "primary", weapon }),
+    sendChat: (text, teamOnly) => link.sendEvent({ t: "chat", text: String(text).slice(0, 1000), team: !!teamOnly }),
     step(cmd) {
       const out = predictor.step({ ...cmd, view: interp.renderTime(performance.now()) ?? 0 }, boxes);
       link.sendState(encodeCommands(out.packet));

@@ -9,6 +9,7 @@ import { createInput } from "./input.js";
 import { createGame } from "./game.js";
 import { createNetGame } from "./netGame.js";
 import { hostSession, joinSession } from "./net/session.js";
+import { CHAT_MAX } from "./net/chat.js";
 import { registerOpenRoom, unregisterOpenRoom, fetchOpenRooms } from "../../tools/tk-shared.jsx";
 import { createAudio } from "./audio.js";
 import { WEAPONS, PRIMARIES, DEFAULT_PRIMARY } from "./engine/weapons.js";
@@ -59,7 +60,8 @@ const LEGEND = [
 const CONTROLS = [
   ["W A S D", "move"], ["Mouse / ← → ↑ ↓", "look"], ["Shift", "sprint"],
   ["Space", "jump"], ["C", "crouch"], ["Left click", "fire"], ["Right click", "aim"],
-  ["R", "reload"], ["1–4 / wheel", "weapons"], ["Q", "last weapon"], ["E", "take gun"], ["Tab", "scores (multiplayer)"], ["Esc", "pause"],
+  ["R", "reload"], ["1–4 / wheel", "weapons"], ["Q", "last weapon"], ["E", "take gun"], ["Tab", "scores (multiplayer)"],
+  ["Enter / Y", "chat: all / team (multiplayer)"], ["Esc", "pause"],
 ];
 
 // How often the React HUD is refreshed from the game (it only re-renders
@@ -156,6 +158,54 @@ function KillFeed({ feed }) {
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// Chat (multiplayer), bottom left above the health: recent lines fade out
+// after a while; while typing, all of them show above the input. Plain text
+// only — React escapes it, and nothing here may use dangerouslySetInnerHTML.
+function ChatBox({ lines, open, selfTeam, onSend, onClose }) {
+  const [text, setText] = useState("");
+  const onKeyDown = (e) => {
+    // Keys typed here are the chat's alone.
+    e.stopPropagation();
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (text.trim()) onSend(text);
+      setText("");
+      onClose();
+    } else if (e.key === "Escape") {
+      setText("");
+      onClose();
+    } else if (e.key === "Tab") e.preventDefault();
+  };
+  return (
+    <div className="absolute bottom-24 left-4 w-[min(28rem,calc(100%-2rem))] font-mono text-xs pointer-events-none">
+      <div className="space-y-0.5">
+        {lines.map(l => (
+          <div key={l.id} className={`w-fit max-w-full rounded bg-black/45 px-2 py-0.5 break-words transition-opacity duration-700 ${
+            open || l.fresh ? "opacity-100" : "opacity-0"}`}>
+            {l.system ? <span className="text-amber-200/90">{l.text}</span> : (
+              <>
+                {l.scope === "team" && <span className="text-white/50">[TEAM] </span>}
+                <span className={l.self ? "text-emerald-300" : TEAM_TEXT[l.team] ?? "text-white"}>{l.name}</span>
+                <span className="text-white/50">: </span>
+                <span className="text-white/90">{l.text}</span>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+      {open && (
+        <label className="pointer-events-auto mt-1 flex items-center gap-2 rounded bg-slate-900/90 border border-slate-600 px-2 py-1">
+          <span className={open === "team" ? TEAM_TEXT[selfTeam] : "text-white/70"}>{open === "team" ? "Team:" : "All:"}</span>
+          <input autoFocus value={text} maxLength={CHAT_MAX} onChange={e => setText(e.target.value)} onKeyDown={onKeyDown}
+            onBlur={onClose} aria-label={open === "team" ? "Message to your team" : "Message to everyone"}
+            className="flex-1 bg-transparent outline-none text-white placeholder:text-white/30"
+            placeholder={open === "team" ? "Say to your team…" : "Say to everyone…"} />
+        </label>
+      )}
     </div>
   );
 }
@@ -493,6 +543,10 @@ export default function FPS() {
   const [matchOptions, setMatchOptions] = usePersistentState("game:fps:match", DEFAULT_MATCH);
   const netRef = useRef(null);
   netRef.current = net;
+  // Chat: which box is open (null, "all" or "team"), and the session's lines
+  // (kept here so they outlive the net game, which a map change rebuilds).
+  const [chatOpen, setChatOpen] = useState(null);
+  const chatLogRef = useRef({ net: null, lines: [] });
   const heartbeatRef = useRef(null);
 
   const mountRef = useRef(null);
@@ -557,6 +611,12 @@ export default function FPS() {
         setPhase(p => (p === "menu" || p === "over" ? p : locked ? "playing" : "paused"));
       },
       onLockError: () => setLockFailed(true),
+      // Only in a multiplayer match that is being played.
+      onChatKey: (channel) => {
+        if (!netRef.current || pausedRef.current) return false;
+        setChatOpen(channel);
+        return true;
+      },
     });
     inputRef.current = input;
     const audio = createAudio(() => (settingsRef.current.muted ? 0 : settingsRef.current.volume));
@@ -642,8 +702,9 @@ export default function FPS() {
       map, view, models: models ?? null, input: inputRef.current, audio: audioRef.current,
       getSettings: () => settingsRef.current, isPaused: () => pausedRef.current,
     };
+    if (chatLogRef.current.net !== net) chatLogRef.current = { net, lines: [] };
     const world = !inGame ? createOrbit(map, view.camera)
-      : net ? createNetGame({ ...common, session: net })
+      : net ? createNetGame({ ...common, session: net, chatLog: chatLogRef.current.lines })
         : createGame({
           ...common, primary, difficulty,
           onGameOver: (stats) => gameOverRef.current(stats),
@@ -662,6 +723,17 @@ export default function FPS() {
   useEffect(() => {
     mapSceneRef.current?.setDebug(showDebug);
   }, [showDebug, activeMapId]);
+
+  // The chat box closes when the game is paused (Esc always releases the
+  // mouse, so Esc cancels a message and opens the menu) or the room ends;
+  // while it's open the game ignores keys and clicks.
+  const chatAllowed = phase === "playing" && !!net;
+  useEffect(() => {
+    if (!chatAllowed) setChatOpen(null);
+  }, [chatAllowed]);
+  useEffect(() => {
+    inputRef.current?.setTyping(!!chatOpen);
+  }, [chatOpen]);
 
   // Leaving the game (or the page) closes the room / the link.
   useEffect(() => () => {
@@ -813,6 +885,10 @@ export default function FPS() {
       )}
       {phase !== "over" && solo?.dead && <DeathOverlay respawnIn={netHud ? solo.respawnIn : null} />}
       {inGame && netHud && <NetHud net={netHud} />}
+      {inGame && netHud && (hud.chat?.length > 0 || chatOpen) && (
+        <ChatBox lines={hud.chat ?? []} open={chatOpen} selfTeam={netHud.team}
+          onSend={(text) => net?.sendChat(text, chatOpen === "team")} onClose={() => setChatOpen(null)} />
+      )}
       {inGame && netHud && phase !== "paused" && (netHud.showScores || netHud.match.state === "over") && <Scoreboard net={netHud} />}
       {phase === "over" && result && (
         <GameOver result={result} mapName={current.name} onAgain={play} onQuit={quit} />

@@ -21,6 +21,8 @@
 // when people join, first team to the kill limit or ahead when time runs
 // out wins, then a short intermission and a fresh match. The host can pick
 // the next match's map at any time; it takes over when that match starts.
+// Text chat is relayed here too (rules in chat.js), with system lines for
+// joins, leaves, team changes, match results and map changes.
 // Pure: no PeerJS/DOM. What should be told to whom is queued in `events`.
 import { createPlayer, eyeHeight } from "../engine/player.js";
 import { createLoadout, activeWeapon, WEAPONS } from "../engine/weapons.js";
@@ -35,6 +37,7 @@ import { buildNavGraph } from "../engine/nav.js";
 import { STEP } from "../engine/loop.js";
 import { MAX_PLAYERS } from "./protocol.js";
 import { runCommand, direction, loadoutState } from "./command.js";
+import { cleanChat, createRateLimiter, TEAM_NAMES } from "./chat.js";
 
 export const HOST_ID = 0;
 export const RESPAWN_DELAY = 3;      // s dead before respawning
@@ -78,6 +81,10 @@ export function createHostSim(firstMap, hostName, { hostPrimary, rand = Math.ran
   let dirty = { roster: false, drops: false };
 
   const tell = (to, msg) => events.push({ to, msg });
+  const limiter = createRateLimiter();
+  let started = false;   // the host is in: from now on joins are announced
+  // A line from the game itself, to everyone (or one player).
+  const system = (text, to = null) => tell(to, { t: "chat", system: true, text });
   const alive = () => [...players.values()].filter(p => !p.health.dead);
 
   // The team's spawn farthest from every living enemy.
@@ -160,9 +167,11 @@ export function createHostSim(firstMap, hostName, { hostPrimary, rand = Math.ran
     tag(p);
     players.set(id, p);
     fillBots();
+    if (started) system(`${p.name} joined ${TEAM_NAMES[team]}.`);
     return id;
   }
   add(hostName, hostPrimary);
+  started = true;
 
   // Same body object, fresh contents (others hold references).
   function respawn(p) {
@@ -186,6 +195,8 @@ export function createHostSim(firstMap, hostName, { hostPrimary, rand = Math.ran
     match.state = "over";
     match.winner = winner;
     match.ended = ended;
+    system(ended === "host" ? "The host ended the match."
+      : winner === null ? "The match is a draw." : `${TEAM_NAMES[winner]} wins the match.`);
     match.restartIn = INTERMISSION;
     dirty.roster = true;
   }
@@ -197,6 +208,7 @@ export function createHostSim(firstMap, hostName, { hostPrimary, rand = Math.ran
       botWorld.boxes = map.boxes;
       botWorld.nav = opts.bots ? buildNavGraph(map) : null;
       match.mapGen = (match.mapGen + 1) & 255;
+      system(`Now playing ${map.name}.`);
     }
     grenades = [];
     drops = [];
@@ -337,9 +349,12 @@ export function createHostSim(firstMap, hostName, { hostPrimary, rand = Math.ran
     events,
     add,
     remove(id) {
-      if (id === HOST_ID || players.get(id)?.bot !== false) return;
+      const p = players.get(id);
+      if (id === HOST_ID || p?.bot !== false) return;
       players.delete(id);
+      limiter.forget(id);
       fillBots();
+      system(`${p.name} left.`);
     },
     options: opts,
     match,
@@ -347,6 +362,7 @@ export function createHostSim(firstMap, hostName, { hostPrimary, rand = Math.ran
     // The map the next match is played on (the current one by default).
     setNextMap(m) {
       if (!m?.boxes || !m.teamSpawns?.a?.length || !m.teamSpawns?.b?.length) return false;
+      if (m !== nextMap) system(m === map ? `Staying on ${map.name}.` : `Next map: ${m.name}.`);
       nextMap = m;
       dirty.roster = true;
       return true;
@@ -374,6 +390,23 @@ export function createHostSim(firstMap, hostName, { hostPrimary, rand = Math.ran
       tag(p);
       respawn(p);
       fillBots();
+      system(`${p.name} switched to ${TEAM_NAMES[team]}.`);
+      return true;
+    },
+    // A chat line from person `id`: to everyone, or (`teamOnly`) to the
+    // people on their team. Name and team come from here, not the message.
+    chat(id, text, teamOnly = false) {
+      const p = players.get(id);
+      if (!p || p.bot) return false;
+      const clean = cleanChat(text);
+      if (!clean) return false;
+      if (!limiter.allow(id, now)) {
+        system("You're sending messages too fast.", id);
+        return false;
+      }
+      const msg = { t: "chat", from: id, name: p.name, team: p.team, scope: teamOnly === true ? "team" : "all", text: clean };
+      if (msg.scope === "all") tell(null, msg);
+      else for (const q of players.values()) if (!q.bot && q.team === p.team) tell(q.id, msg);
       return true;
     },
     // The primary a person will carry from their next respawn.

@@ -318,6 +318,14 @@ Replace the box figures and box guns with open-source models. This overrides the
 
 **Acceptance:** messages arrive in real time across browsers, and team messages never reach the other team (check the host relay logic in a test). Tests also cover: the sender's name comes from the host; 201 characters are cut to 200; control and bidi characters are stripped; spam is rate-limited; malformed messages are ignored; system messages on join, leave and team change.
 
+**As built (2026-11-14):**
+- **Files:** `net/chat.js` (pure: `cleanChat`, `createRateLimiter`, limits, team names), `sim.chat()` and the system lines in `net/hostSim.js`, `sendChat` in both sessions, the chat keys and typing mode in `input.js`, the lines in `netGame.js`, `ChatBox` in `FPS.jsx`.
+- **Messages:** `{ t: "chat", from, name, team, scope: "all" | "team", text }`, or `{ t: "chat", system: true, text }`. A guest's `team` flag counts only if it is exactly `true`.
+- **System lines:** "<name> joined Blue.", "<name> left.", "<name> switched to Orange.", "Blue wins the match." / "The match is a draw." / "The host ended the match.", "Next map: Warehouse." / "Staying on Arena.", "Now playing Warehouse.". Bots filling or leaving a team say nothing. The rate-limit warning goes to the sender only.
+- **Keys:** Enter (and keypad Enter) for all, Y for team. The key that opens the box is swallowed, so it never lands in the text. While typing, the game ignores keys and clicks (a click also can't take the focus from the box), mouse look carries on, and the pointer stays locked. Enter sends, an empty Enter or Esc closes; Esc also releases the mouse and opens the menu (the browser's rule). Leaving the box (losing focus) cancels it.
+- **Display:** bottom left above the health, the last 8 lines, each fading after 8 s; all of them while typing. Your own name is green, others are coloured by team, team lines are tagged `[TEAM]`, system lines amber. The lines are kept per room outside the net game, so a map change doesn't wipe them.
+- **Verified in the browser** (headless Chromium, host on Blue and guest on Orange over PeerJS): all-chat reached both; the guest's team line reached only the guest and the host's only the host; `hello <b>all</b>` showed literally; Y didn't land in the box; the pointer stayed locked; lines faded; no console errors.
+
 ---
 
 ## Out of scope (possible follow-ups)
