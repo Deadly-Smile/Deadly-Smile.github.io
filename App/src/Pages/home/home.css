@@ -1,0 +1,178 @@
+/* Home page. Layout is Tailwind; this file holds the animated pieces
+   (orbit, pipeline packets, reveal-on-scroll, caret). */
+
+.home {
+  --accent: #00ff88;
+  --accent-soft: rgba(0, 255, 136, 0.14);
+  --line: #2a2a2a;
+}
+
+/* Faint grid behind the hero, fading out toward the edges. */
+.home-grid {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 40%, #000 30%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 40%, #000 30%, transparent 100%);
+}
+
+.home-glow {
+  background: radial-gradient(circle at center, rgba(0, 255, 136, 0.16), transparent 65%);
+}
+
+/* ---------- Orbit ---------- */
+
+.orbit {
+  --size: min(400px, 84vw);
+  position: relative;
+  width: var(--size);
+  height: var(--size);
+}
+
+.orbit-ring {
+  position: absolute;
+  border-radius: 9999px;
+  border: 1px dashed rgba(0, 255, 136, 0.22);
+  animation: orbit-spin var(--speed, 60s) linear infinite;
+}
+.orbit-ring.reverse { animation-direction: reverse; }
+
+.orbit-item {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2.75rem;
+  height: 2.75rem;
+  margin: -1.375rem;
+  transform: rotate(var(--a)) translateX(var(--r)) rotate(calc(-1 * var(--a)));
+}
+
+/* Counter-spin so icons stay upright while the ring turns. */
+.orbit-item > span {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: #111;
+  border: 1px solid var(--line);
+  font-size: 1.3rem;
+  color: #e8e8e8;
+  transition: color 0.2s, border-color 0.2s, box-shadow 0.2s;
+  animation: orbit-spin var(--speed, 60s) linear infinite;
+  animation-direction: reverse;
+}
+.orbit-ring.reverse .orbit-item > span { animation-direction: normal; }
+.orbit-item > span:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 18px rgba(0, 255, 136, 0.35);
+}
+
+.orbit:hover .orbit-ring,
+.orbit:hover .orbit-item > span { animation-play-state: paused; }
+
+@keyframes orbit-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ---------- Pipeline ---------- */
+
+.flow-node {
+  opacity: 0;
+  transform: translateY(8px);
+  animation: flow-in 0.45s ease-out forwards;
+  animation-delay: var(--d, 0s);
+}
+
+@keyframes flow-in {
+  to { opacity: 1; transform: none; }
+}
+
+.flow-link {
+  position: relative;
+  align-self: center;
+  flex: none;
+  width: 1px;
+  height: 1.75rem;
+  background: var(--line);
+}
+.flow-link::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px;
+  border-radius: 9999px;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent);
+  animation: flow-y 1.6s linear infinite;
+  animation-delay: var(--d, 0s);
+}
+
+@media (min-width: 768px) {
+  .flow-link {
+    flex: 1 1 0;
+    min-width: 1.25rem;
+    width: auto;
+    height: 1px;
+  }
+  .flow-link::after {
+    top: 50%;
+    left: 0;
+    animation-name: flow-x;
+  }
+}
+
+@keyframes flow-x {
+  0% { left: 0; opacity: 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { left: 100%; opacity: 0; }
+}
+@keyframes flow-y {
+  0% { top: 0; opacity: 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+/* ---------- Misc ---------- */
+
+.caret {
+  display: inline-block;
+  width: 0.55em;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  background: var(--accent);
+  animation: caret-blink 1s steps(1) infinite;
+}
+@keyframes caret-blink {
+  50% { opacity: 0; }
+}
+
+.reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+.scrollbar-none { scrollbar-width: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .orbit-ring,
+  .orbit-item > span,
+  .flow-link::after,
+  .caret { animation: none; }
+  .flow-node { animation: none; opacity: 1; transform: none; }
+  .reveal { opacity: 1; transform: none; transition: none; }
+}
