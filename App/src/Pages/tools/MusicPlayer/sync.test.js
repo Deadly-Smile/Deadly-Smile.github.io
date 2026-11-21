@@ -1,7 +1,8 @@
 // No test framework is configured in this project (see CLAUDE.md) — this is a
-// plain script exercising the pure sync-merge logic. Run manually with:
+// plain script exercising the pure album/playlist merge logic
+// (hash-based file planning is tested in shared/fileSync/fileSync.test.js). Run manually with:
 //   node src/Pages/tools/MusicPlayer/sync.test.js
-import { planTrackSync, mergeNamedCollections } from "./sync.js";
+import { mergeNamedCollections } from "./sync.js";
 
 let failures = 0;
 function check(name, actual, expected) {
@@ -14,19 +15,6 @@ function check(name, actual, expected) {
   } else {
     console.log(`✓ ${name}`);
   }
-}
-
-// ── planTrackSync: duplicate (by hash) is remapped, new track keeps its id ──
-{
-  const manifest = [
-    { id: "remote-1", hash: "hashA" }, // duplicate of local track
-    { id: "remote-2", hash: "hashB" }, // new to this device
-  ];
-  const local = [{ id: "local-1", hash: "hashA" }];
-  const { needed, idMap } = planTrackSync(manifest, local);
-  check("dup track: not in needed list", needed.map((t) => t.id), ["remote-2"]);
-  check("dup track: remapped to local id", idMap.get("remote-1"), "local-1");
-  check("new track: keeps its own id", idMap.get("remote-2"), "remote-2");
 }
 
 // ── mergeNamedCollections: name match unions trackIds, remapped through idMap ──

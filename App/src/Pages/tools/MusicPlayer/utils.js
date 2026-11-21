@@ -23,12 +23,6 @@ export function resolveTracks(trackIds, tracksById) {
   return trackIds.filter((id) => tracksById.has(id)).map((id) => tracksById.get(id));
 }
 
-export function isDuplicateUpload(file, existingTracks) {
-  return existingTracks.some(
-    (t) => t.fileName === file.name && t.fileBlob?.size === file.size
-  );
-}
-
 // Browsers and OSes label the same format differently (audio/x-wav,
 // audio/vnd.wave, audio/x-m4a, audio/mp4, audio/x-flac…) or leave file.type
 // empty, so a file is recognised by its MIME type OR its extension. Whether

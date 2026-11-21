@@ -19,7 +19,9 @@ function clampToViewport(pos, el) {
 // the background (see Utils/KeepAlive.jsx). It sits in the shared bottom-left
 // dock until dragged by its grip; then it floats at the dropped position
 // (remembered across visits). Double-clicking the grip docks it again.
-export default function MiniPlayer({ track, isPlaying, onTogglePlay, onNext, onPrevious, onOpen, onClose }) {
+// onNext/onPrevious are optional (a listening-room listener has neither);
+// `badge` marks a live room (📡 hosting / 🎧 listening).
+export default function MiniPlayer({ track, isPlaying, onTogglePlay, onNext, onPrevious, onOpen, onClose, badge, playTitle, closeTitle = "Stop and close" }) {
   const [savedPos, setSavedPos] = usePersistentState("tool:music_player:mini-pos", null);
   const [dragPos, setDragPos] = useState(null);
   const rootRef = useRef(null);
@@ -80,12 +82,13 @@ export default function MiniPlayer({ track, isPlaying, onTogglePlay, onNext, onP
           <span aria-hidden="true">🎵</span>
           <span className={styles.miniTitleText}>{track.title}</span>
         </button>
-        <button type="button" className={styles.miniBtn} onClick={onPrevious} title="Previous (Alt+Shift+B)">⏮</button>
-        <button type="button" className={styles.miniBtn} onClick={onTogglePlay} title={`${isPlaying ? "Pause" : "Play"} (Alt+Shift+P)`}>
+        {badge && <span className={styles.miniBadge} title="Live room">{badge}</span>}
+        {onPrevious && <button type="button" className={styles.miniBtn} onClick={onPrevious} title="Previous (Alt+Shift+B)">⏮</button>}
+        <button type="button" className={styles.miniBtn} onClick={onTogglePlay} title={playTitle ?? `${isPlaying ? "Pause" : "Play"} (Alt+Shift+P)`}>
           {isPlaying ? "⏸" : "▶"}
         </button>
-        <button type="button" className={styles.miniBtn} onClick={onNext} title="Next (Alt+Shift+N)">⏭</button>
-        <button type="button" className={styles.miniBtn} onClick={onClose} title="Stop and close">✕</button>
+        {onNext && <button type="button" className={styles.miniBtn} onClick={onNext} title="Next (Alt+Shift+N)">⏭</button>}
+        <button type="button" className={styles.miniBtn} onClick={onClose} title={closeTitle}>✕</button>
       </div>
     </BackgroundDock>
   );

@@ -14,16 +14,28 @@ import { useEffect, useRef } from "react";
 //   createMediaElementSource() reroutes the element's output through the
 //   AudioContext. Playback then depends on the context running, which mobile
 //   browsers suspend in the background — acceptable for desktop.
+//
+// The same graph also feeds listening rooms: getBroadcastStream() taps the
+// source into a MediaStreamAudioDestinationNode whose track stays the same
+// across track changes (the captured stream's tracks don't), so a WebRTC
+// call can carry it for the whole session. While broadcasting, the context
+// is never suspended just because the visualizer is hidden.
 let graph = null;
 
 function connectStreamSource(g) {
-  const tracks = g.stream.getAudioTracks();
-  if (tracks.length === 0) return; // nothing loaded yet; "addtrack" retries
-  const key = tracks.map((t) => t.id).join(",");
+  // A source change adds a new track to the captured stream, and the old one
+  // can linger (ended) for a while. createMediaStreamSource() would pick the
+  // lexicographically-first id — possibly the dead track, i.e. silence — so
+  // feed it only the newest live track.
+  const live = g.stream.getAudioTracks().filter((t) => t.readyState === "live");
+  const track = live[live.length - 1];
+  if (!track) return; // nothing loaded yet; "addtrack" retries
+  const key = track.id;
   if (key === g.streamKey) return;
   g.source?.disconnect();
-  g.source = g.ctx.createMediaStreamSource(new MediaStream(tracks));
+  g.source = g.ctx.createMediaStreamSource(new MediaStream([track]));
   g.source.connect(g.analyser);
+  if (g.broadcast) g.source.connect(g.broadcast);
   g.streamKey = key;
 }
 
@@ -33,7 +45,7 @@ function getOrCreateGraph(audioEl) {
     const ctx = new AudioContextClass();
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 512; // 256 bins — enough resolution for log-spaced bass bars
-    graph = { ctx, analyser, source: null, connectedElement: null, stream: null, streamKey: null };
+    graph = { ctx, analyser, source: null, connectedElement: null, stream: null, streamKey: null, broadcast: null };
   }
   if (graph.connectedElement !== audioEl) {
     const g = graph;
@@ -49,6 +61,7 @@ function getOrCreateGraph(audioEl) {
       // Changing audio.src swaps the captured stream's tracks.
       const reconnect = () => { if (graph === g) connectStreamSource(g); };
       g.stream.addEventListener("addtrack", reconnect);
+      g.stream.addEventListener("removetrack", reconnect);
       audioEl.addEventListener("playing", reconnect); // backstop if addtrack doesn't fire
       connectStreamSource(g);
     } else {
@@ -69,6 +82,24 @@ function getOrCreateGraph(audioEl) {
 // been suspended on pause and audio is routed through it.
 export function resumeAudioGraph() {
   if (graph?.ctx.state === "suspended") graph.ctx.resume().catch(() => {});
+}
+
+// Live MediaStream of whatever the player outputs, for a listening room.
+// Call from a user gesture (it may create the AudioContext).
+export function getBroadcastStream(audioEl) {
+  const g = getOrCreateGraph(audioEl);
+  if (!g.broadcast) {
+    g.broadcast = g.ctx.createMediaStreamDestination();
+    g.source?.connect(g.broadcast);
+  }
+  if (g.ctx.state === "suspended" && !audioEl.paused) g.ctx.resume().catch(() => {});
+  return g.broadcast.stream;
+}
+
+export function stopBroadcastStream() {
+  if (!graph?.broadcast) return;
+  try { graph.source?.disconnect(graph.broadcast); } catch { /* already disconnected */ }
+  graph.broadcast = null;
 }
 
 export function closeAudioGraph() {
@@ -149,7 +180,7 @@ export function useVisualizer(audioRef, canvasRef, isPlaying, visible = true, en
     // AudioContext creation is user-gesture-gated: this effect only runs once
     // isPlaying flips true, i.e. after a Play click, satisfying autoplay policy.
     const g = getOrCreateGraph(audio);
-    if (!active && g.stream) {
+    if (!active && g.stream && !g.broadcast) {
       g.ctx.suspend().catch(() => {});
       return;
     }

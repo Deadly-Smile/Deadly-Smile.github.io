@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
-import { navigate, useSearchParams } from "../../../Utils/router";
+import { navigate } from "../../../Utils/router";
 import { useKeepAliveActive, useKeepAliveRelease } from "../../../Utils/KeepAlive";
 import { usePersistentState } from "../../../Utils/usePersistentState";
 import { StatusBar } from "../tk-shared.jsx";
@@ -28,7 +28,11 @@ import PlaylistView from "./components/PlaylistView";
 import AlbumView from "./components/AlbumView";
 import PlayerControls from "./components/PlayerControls";
 import Visualizer from "./components/Visualizer";
-import SyncPanel from "./components/SyncPanel";
+import FileSyncPanel from "../shared/fileSync/FileSyncPanel";
+import { useInviteRoomId } from "../shared/p2p/useInviteRoomId";
+import { musicSyncAdapter } from "./syncAdapter";
+import { useListeningRoom, LISTEN_PARAM } from "./room/useListeningRoom";
+import RoomPanel from "./room/RoomPanel";
 import MiniPlayer from "./components/MiniPlayer";
 import styles from "./MusicPlayer.module.css";
 
@@ -42,6 +46,7 @@ const TABS = [
   { id: "playlists", label: "Playlists" },
   { id: "albums", label: "Albums" },
   { id: "sync", label: "Sync" },
+  { id: "room", label: "Room" },
 ];
 
 export default function MusicPlayer() {
@@ -49,17 +54,18 @@ export default function MusicPlayer() {
   // page is showing, playback continues and a MiniPlayer stands in for the UI.
   const onScreen = useKeepAliveActive();
   const releaseInstance = useKeepAliveRelease();
-  const [searchParams] = useSearchParams();
   // Only honour ?sync= on our own page — while hidden, the URL is someone else's.
-  const autoJoinRoomId = (onScreen && searchParams.get("sync")?.toUpperCase()) || null;
+  const autoJoinRoomId = useInviteRoomId("sync", onScreen);
+  const listenInvite = useInviteRoomId(LISTEN_PARAM, onScreen);
   const [library, dispatch] = useReducer(libraryReducer, initialLibraryState);
   // Volume/shuffle/repeat/last track persist via ./storage; this is just the open tab.
-  const [storedTab, setActiveTab] = usePersistentState("tool:music_player:tab", autoJoinRoomId ? "sync" : "library");
+  const [storedTab, setActiveTab] = usePersistentState("tool:music_player:tab", autoJoinRoomId ? "sync" : listenInvite ? "room" : "library");
   const activeTab = TABS.some((t) => t.id === storedTab) ? storedTab : "library";
-  // A ?sync= invite link always lands on the Sync tab, whatever was open last (layout effect: applied before first paint, no flash).
+  // A ?sync= / ?listen= invite link always lands on its tab, whatever was open last (layout effect: applied before first paint, no flash).
   useLayoutEffect(() => {
     if (autoJoinRoomId) setActiveTab("sync");
-  }, [autoJoinRoomId, setActiveTab]);
+    else if (listenInvite) setActiveTab("room");
+  }, [autoJoinRoomId, listenInvite, setActiveTab]);
   const [repeatMode, setRepeatMode] = useState(() => getSettings().repeatMode);
   const [status, setStatus] = useState(null);
 
@@ -72,6 +78,16 @@ export default function MusicPlayer() {
   const handleNaturalEnd = useCallback(() => goNextRef.current?.(), []);
 
   const player = useAudioPlayer(currentTrack, { repeatMode, onNaturalEnd: handleNaturalEnd });
+
+  // Listen-together room (host streams live / listener plays the stream).
+  const listening = useListeningRoom({ player, currentTrack });
+  const handledInviteRef = useRef(null);
+  const { join: joinListeningRoom } = listening;
+  useEffect(() => {
+    if (!listenInvite || handledInviteRef.current === listenInvite) return;
+    handledInviteRef.current = listenInvite;
+    joinListeningRoom(listenInvite);
+  }, [listenInvite, joinListeningRoom]);
 
   const goNext = () => {
     const result = shuffleQueue.next({ repeatAll: repeatMode === "all" });
@@ -331,7 +347,7 @@ export default function MusicPlayer() {
             {tab.label}
           </button>
         ))}
-        <UploadButton existingTracks={library.tracks} onTrackAdded={handleTrackAdded} onError={(msg) => setStatus({ msg, type: "err" })} />
+        <UploadButton onTrackAdded={handleTrackAdded} onError={(msg) => setStatus({ msg, type: "err" })} />
       </div>
 
       {status && <StatusBar msg={status.msg} type={status.type} />}
@@ -371,8 +387,10 @@ export default function MusicPlayer() {
             onRemoveTrack={handleRemoveTrackFromAlbum}
             onPlay={handlePlayAlbum}
           />
+        ) : activeTab === "sync" ? (
+          <FileSyncPanel adapter={musicSyncAdapter} onSynced={reloadLibrary} autoJoinRoomId={autoJoinRoomId} />
         ) : (
-          <SyncPanel onSynced={reloadLibrary} autoJoinRoomId={autoJoinRoomId} />
+          <RoomPanel listening={listening} />
         )}
       </div>
 
@@ -395,8 +413,20 @@ export default function MusicPlayer() {
         onVolumeChange={player.setVolume}
       />
 
-      {!onScreen && currentTrack && (
+      {!onScreen && listening.isListener ? (
         <MiniPlayer
+          track={{ title: listening.nowPlaying?.track?.title ?? `Room ${listening.room.roomId}` }}
+          badge="🎧 live"
+          isPlaying={!listening.muted}
+          playTitle={listening.muted ? "Unmute room" : "Mute room"}
+          onTogglePlay={listening.toggleMute}
+          onOpen={() => navigate("/toolz/music_player")}
+          onClose={listening.leave}
+          closeTitle="Leave room"
+        />
+      ) : !onScreen && currentTrack && (
+        <MiniPlayer
+          badge={listening.isHost ? `📡 ${listening.room.guests.length}` : null}
           track={currentTrack}
           isPlaying={player.isPlaying}
           onTogglePlay={player.togglePlay}

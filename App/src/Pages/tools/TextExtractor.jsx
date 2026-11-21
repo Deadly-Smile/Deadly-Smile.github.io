@@ -1,10 +1,8 @@
 import { useState, useRef, useEffect } from "react";
-import * as pdfjsLib from "pdfjs-dist";
+import { pdfjsLib } from "../../Utils/pdfjs";
 import Tesseract from "tesseract.js";
 import { CopyBtn } from "./tk-shared";
 import { usePersistentState } from "../../Utils/usePersistentState";
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB for images
 const PDF_MAX_SIZE = 1024 * 1024; // 1MB for PDFs
