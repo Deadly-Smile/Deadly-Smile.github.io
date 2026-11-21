@@ -60,7 +60,7 @@ const Games = ({ gameId = null }) => {
     const GameComponent = game.component;
 
     return (
-      <div className="h-screen flex flex-col bg-slate-900 relative">
+      <div className="h-screen supports-[height:100dvh]:h-[100dvh] flex flex-col bg-slate-900 relative">
         {!pointerLocked && <button
           onClick={() => navigate("/games")}
           className="fixed top-4 left-4 px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition-all shadow-lg z-50"

@@ -17,6 +17,10 @@ import { DIFFICULTIES } from "./engine/ai.js";
 import { loadModels } from "./render/models.js";
 import { crosshairGap } from "./engine/hud.js";
 import { QUALITY_LEVELS, DEFAULT_QUALITY, FPS_LIMITS, DEFAULT_FPS_LIMIT, IDLE_FPS, qualityOf } from "./engine/quality.js";
+import { controlsFor } from "./engine/touch.js";
+import { touchPrefs, DEFAULT_TOUCH, TOUCH_PREFS_VERSION, SCALE, OPACITY } from "./engine/touchLayout.js";
+import { createTouchInput } from "./touchInput.js";
+import TouchControls from "./TouchControls.jsx";
 
 // FPS game shell. This module (and three.js with it) is lazy-loaded from
 // Games.jsx, so nothing here is downloaded until the game is opened.
@@ -28,17 +32,36 @@ import { QUALITY_LEVELS, DEFAULT_QUALITY, FPS_LIMITS, DEFAULT_FPS_LIMIT, IDLE_FP
 // Phases: "menu" (map picker, orbiting preview) → "paused" ⇄ "playing".
 // Playing means the pointer is locked; losing the lock (Esc, alt-tab) pauses.
 
-// Pointer lock and WASD need a mouse and keyboard; a device whose only
-// pointer is coarse (phones, most tablets) can't play.
-function isTouchOnly() {
-  return typeof window.matchMedia === "function" && !window.matchMedia("(any-pointer: fine)").matches;
+// Touch controls on phones and tablets, mouse and keyboard elsewhere, unless
+// the player picks one (see engine/touch.js).
+const TOUCH_SCREEN = typeof navigator !== "undefined" && navigator.maxTouchPoints > 0;
+function deviceControls(setting) {
+  return controlsFor({
+    setting,
+    maxTouchPoints: navigator.maxTouchPoints ?? 0,
+    coarsePointer: window.matchMedia?.("(pointer: coarse)").matches ?? false,
+    mobile: navigator.userAgentData?.mobile || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent),
+  });
 }
 
 const DEFAULT_SETTINGS = {
-  sensitivity: 1, invertY: false, fov: 75, keyTurnSpeed: 2.5,
+  sensitivity: 1, adsSensitivity: 1, adsToggle: false, invertY: false, fov: 75, keyTurnSpeed: 2.5,
   quality: DEFAULT_QUALITY, fpsLimit: DEFAULT_FPS_LIMIT, showStats: false,
-  volume: 0.7, muted: false,
+  volume: 0.7, muted: false, controls: "auto",
 };
+// Which settings each pause-menu tab's "Reset" puts back.
+const SETTING_GROUPS = {
+  controls: ["sensitivity", "adsSensitivity", "adsToggle", "invertY", "keyTurnSpeed"],
+  graphics: ["fov", "quality", "fpsLimit", "showStats"],
+  sound: ["volume", "muted"],
+};
+// Phones start on Low graphics.
+const initialSettings = () => ({ ...DEFAULT_SETTINGS, quality: deviceControls("auto") === "touch" ? "low" : DEFAULT_QUALITY });
+const TOUCH_CONTROLS = [
+  ["Left thumb", "move (push to the edge to sprint)"], ["Right thumb", "look"], ["FIRE", "shoot (drag it to aim)"],
+  ["AIM / CROUCH", "toggle"], ["R / JUMP", "reload / jump"], ["Bottom bar", "weapons"], ["❚❚", "pause"],
+];
+const CONTROL_OPTIONS = [["auto", "Auto"], ["touch", "Touch"], ["mouse", "Mouse & keys"]];
 
 function Notice({ title, children }) {
   return (
@@ -102,6 +125,34 @@ function Segmented({ label, options, value, onChange }) {
 const QUALITY_OPTIONS = QUALITY_LEVELS.map(l => [l, l]);
 const FPS_OPTIONS = FPS_LIMITS.map(f => [f, f ? `${f} fps` : "Unlimited"]);
 
+// A reset button that asks for a second tap (for 4 s) before it acts.
+function ResetButton({ label, onReset }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 4000);
+    return () => clearTimeout(t);
+  }, [armed]);
+  return (
+    <button type="button" onClick={() => { if (armed) { setArmed(false); onReset(); } else setArmed(true); }}
+      className={`w-full py-1.5 rounded-lg border text-sm ${armed
+        ? "border-amber-400 bg-amber-500/20 text-amber-200"
+        : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500 hover:text-slate-200"}`}>
+      {armed ? "Tap again to reset" : label}
+    </button>
+  );
+}
+
+// A labelled checkbox.
+function Check({ label, checked, onChange }) {
+  return (
+    <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+      <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} />
+      {label}
+    </label>
+  );
+}
+
 function Slider({ label, value, min, max, step, onChange, format = (v) => v }) {
   return (
     <label className="block text-sm text-slate-300">
@@ -126,7 +177,12 @@ function ScopeOverlay() {
 // One-shot fade used by the hurt flash and hit markers; each new event
 // remounts the element (new React key), which restarts the animation.
 const FADE_KEYFRAMES = "@keyframes fps-fade { from { opacity: 1 } to { opacity: 0 } }"
-  + " @keyframes fps-pulse { 0%, 100% { opacity: 0.55 } 50% { opacity: 1 } }";
+  + " @keyframes fps-pulse { 0%, 100% { opacity: 0.55 } 50% { opacity: 1 } }"
+  // Menus on phones: every button and slider at least a finger tall.
+  + " .fps-touch-menu button { min-height: 2.5rem }"
+  + " .fps-touch-menu input[type=range] { height: 2rem }"
+  + " .fps-touch-menu input[type=checkbox] { width: 1.25rem; height: 1.25rem; flex-shrink: 0 }";
+const MENU_TABS = [["game", "Game"], ["controls", "Controls"], ["graphics", "Graphics"], ["sound", "Sound"]];
 const fade = (ms) => ({ animation: `fps-fade ${ms}ms ease-out forwards` });
 
 // Centre dot plus four arms; the gap between them is the weapon's current
@@ -165,7 +221,9 @@ function KillFeed({ feed }) {
 // Chat (multiplayer), bottom left above the health: recent lines fade out
 // after a while; while typing, all of them show above the input. Plain text
 // only — React escapes it, and nothing here may use dangerouslySetInnerHTML.
-function ChatBox({ lines, open, selfTeam, onSend, onClose }) {
+// On phones it sits top centre instead: clear of the joystick, and above the
+// on-screen keyboard while typing.
+function ChatBox({ lines, open, selfTeam, onSend, onClose, touch = false }) {
   const [text, setText] = useState("");
   const onKeyDown = (e) => {
     // Keys typed here are the chat's alone.
@@ -181,7 +239,9 @@ function ChatBox({ lines, open, selfTeam, onSend, onClose }) {
     } else if (e.key === "Tab") e.preventDefault();
   };
   return (
-    <div className="absolute bottom-24 left-4 w-[min(28rem,calc(100%-2rem))] font-mono text-xs pointer-events-none">
+    <div className={`absolute font-mono text-xs pointer-events-none ${touch
+      ? "top-[4.5rem] left-1/2 -translate-x-1/2 w-[min(24rem,50%)] flex flex-col items-center"
+      : "bottom-24 left-4 w-[min(28rem,calc(100%-2rem))]"}`}>
       <div className="space-y-0.5">
         {lines.map(l => (
           <div key={l.id} className={`w-fit max-w-full rounded bg-black/45 px-2 py-0.5 break-words transition-opacity duration-700 ${
@@ -198,7 +258,7 @@ function ChatBox({ lines, open, selfTeam, onSend, onClose }) {
         ))}
       </div>
       {open && (
-        <label className="pointer-events-auto mt-1 flex items-center gap-2 rounded bg-slate-900/90 border border-slate-600 px-2 py-1">
+        <label className="pointer-events-auto mt-1 w-full flex items-center gap-2 rounded bg-slate-900/90 border border-slate-600 px-2 py-1">
           <span className={open === "team" ? TEAM_TEXT[selfTeam] : "text-white/70"}>{open === "team" ? "Team:" : "All:"}</span>
           <input autoFocus value={text} maxLength={CHAT_MAX} onChange={e => setText(e.target.value)} onKeyDown={onKeyDown}
             onBlur={onClose} aria-label={open === "team" ? "Message to your team" : "Message to everyone"}
@@ -237,10 +297,11 @@ function LowHealth({ hp }) {
 }
 const LOW_HP = 35;
 
-function HealthHud({ hp }) {
+// Bottom left; on phones top left (under the score), clear of the joystick.
+function HealthHud({ hp, touch = false }) {
   const color = hp > 60 ? "bg-emerald-400" : hp > 30 ? "bg-amber-400" : "bg-red-500";
   return (
-    <div className="pointer-events-none absolute bottom-4 left-4 w-48 font-mono text-white drop-shadow">
+    <div className={`pointer-events-none absolute left-4 font-mono text-white drop-shadow ${touch ? "top-[4.5rem] w-32 scale-90 origin-top-left" : "bottom-4 w-48"}`}>
       <div className="flex items-baseline gap-2">
         <span className="text-xs text-white/60">HP</span>
         <span className="text-3xl font-bold">{hp}</span>
@@ -386,13 +447,13 @@ const clock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
 // During a multiplayer match: room and link health (top left), the team
 // scores and the clock (top centre).
-function NetHud({ net }) {
+function NetHud({ net, touch = false }) {
   const { match } = net;
   return (
     <>
       <div className="pointer-events-none absolute top-4 left-4 font-mono text-xs text-white/80 drop-shadow space-y-0.5">
         <div>Room <span className="text-white font-bold">{net.roomId}</span>{net.role === "guest" && ` · ${net.ping} ms`}</div>
-        <div>You: <span className={TEAM_TEXT[net.team]}>{TEAM_NAME[net.team]}</span> · Tab for scores</div>
+        <div>You: <span className={TEAM_TEXT[net.team]}>{TEAM_NAME[net.team]}</span>{!touch && " · Tab for scores"}</div>
         {net.stalled && <div className="text-amber-300">Host not responding…</div>}
       </div>
       <div className="pointer-events-none absolute top-4 left-1/2 -translate-x-1/2 text-center font-mono text-white drop-shadow">
@@ -476,7 +537,7 @@ function NextMap({ net, match }) {
 }
 
 // The host's match settings, chosen before hosting.
-const DEFAULT_MATCH = { teamSize: 2, bots: true, killLimit: 20, minutes: 10, friendlyFire: false };
+const DEFAULT_MATCH = { teamSize: 2, bots: true, killLimit: 20, minutes: 10, friendlyFire: false, touchAssist: true };
 function MatchOptions({ value, onChange }) {
   const set = (k, v) => onChange({ ...DEFAULT_MATCH, ...value, [k]: v });
   const select = (k, options) => (
@@ -497,6 +558,7 @@ function MatchOptions({ value, onChange }) {
       {select("minutes", [5, 10, 15].map(n => [n, `${n} min`]))}
       {toggle("bots", "Bots fill teams")}
       {toggle("friendlyFire", "Friendly fire")}
+      {toggle("touchAssist", "Aim assist for phones")}
     </>
   );
 }
@@ -515,10 +577,43 @@ function CopyLink({ roomId }) {
 }
 
 export default function FPS() {
-  const [touchOnly] = useState(isTouchOnly);
   const [error, setError] = useState(null);
   const [mapId, setMapId] = usePersistentState("game:fps:map", MAPS[0].id);
-  const [settings, setSettings] = usePersistentState("game:fps:settings", DEFAULT_SETTINGS);
+  const [settings, setSettings] = usePersistentState("game:fps:settings", initialSettings);
+  const controls = deviceControls({ ...DEFAULT_SETTINGS, ...settings }.controls);
+  const touch = controls === "touch";
+  // Touch controls: options and button layout (engine/touchLayout.js), kept
+  // apart from the desktop settings; the input reads them through a ref.
+  const [storedTouch, setStoredTouch] = usePersistentState("game:fps:touch", DEFAULT_TOUCH, { version: TOUCH_PREFS_VERSION });
+  const tp = touchPrefs(storedTouch);
+  const touchPrefsRef = useRef(tp);
+  touchPrefsRef.current = tp;
+  const setTouch = (patch) => setStoredTouch(prev => ({ ...touchPrefs(prev), ...patch }));
+  const [editingLayout, setEditingLayout] = useState(false);
+  const [gyroNote, setGyroNote] = useState(null);
+  // iPhones only report the phone's motion once the player allows it, and
+  // only when asked from a tap: so ask when gyro is switched on.
+  const chooseGyro = (mode) => {
+    setGyroNote(null);
+    const ask = window.DeviceMotionEvent?.requestPermission;
+    if (mode === "off" || typeof ask !== "function") return setTouch({ gyro: mode });
+    ask.call(window.DeviceMotionEvent)
+      .then(answer => {
+        if (answer === "granted") setTouch({ gyro: mode });
+        else setGyroNote("Motion access was refused. Allow it for this site in your browser's settings to use gyro aiming.");
+      })
+      .catch(() => setGyroNote("This browser wouldn't give access to the phone's motion."));
+  };
+  const [menuTab, setMenuTab] = useState("game");
+  // Phones held upright get a "rotate" message while playing.
+  const [portrait, setPortrait] = useState(() => window.matchMedia?.("(orientation: portrait)").matches ?? false);
+  useEffect(() => {
+    const mq = window.matchMedia?.("(orientation: portrait)");
+    if (!mq) return;
+    const update = () => setPortrait(mq.matches);
+    mq.addEventListener?.("change", update);
+    return () => mq.removeEventListener?.("change", update);
+  }, []);
   const [showDebug, setShowDebug] = useState(false);
   const [phase, setPhase] = useState("menu");
   const [lockFailed, setLockFailed] = useState(false);
@@ -550,6 +645,7 @@ export default function FPS() {
   const heartbeatRef = useRef(null);
 
   const mountRef = useRef(null);
+  const rootRef = useRef(null);      // the game's box (fullscreen on phones)
   const fpsRef = useRef(null);
   const crosshairRef = useRef(null);
   const viewRef = useRef(null);      // renderer/scene/camera for the session
@@ -587,15 +683,13 @@ export default function FPS() {
   // Start fetching the models as soon as the game is opened (they're only
   // ever downloaded here, never by the rest of the site).
   useEffect(() => {
-    if (touchOnly) return;
     let live = true;
     loadModels().then(m => { if (live) setModels(m); });
     return () => { live = false; };
-  }, [touchOnly]);
+  }, []);
 
-  // Renderer + input + loop: created once per mount, survive map changes.
+  // Renderer + loop: created once per mount, survive map changes.
   useEffect(() => {
-    if (touchOnly) return;
     let view;
     try {
       view = createRenderer(mountRef.current, { quality: settingsRef.current.quality });
@@ -605,20 +699,6 @@ export default function FPS() {
     }
     viewRef.current = view;
 
-    const input = createInput(mountRef.current, {
-      onLockChange: (locked) => {
-        if (locked) setLockFailed(false);
-        setPhase(p => (p === "menu" || p === "over" ? p : locked ? "playing" : "paused"));
-      },
-      onLockError: () => setLockFailed(true),
-      // Only in a multiplayer match that is being played.
-      onChatKey: (channel) => {
-        if (!netRef.current || pausedRef.current) return false;
-        setChatOpen(channel);
-        return true;
-      },
-    });
-    inputRef.current = input;
     const audio = createAudio(() => (settingsRef.current.muted ? 0 : settingsRef.current.volume));
     audioRef.current = audio;
 
@@ -627,6 +707,8 @@ export default function FPS() {
     let lastHud = 0;
     let lastHudJson = "";
     const loop = createLoop({
+      // Aim first, so this frame's shots go where the crosshair is now.
+      beforeUpdate: (frameDt) => worldRef.current?.aim?.(frameDt),
       update: (dt) => worldRef.current?.update(dt),
       // Menus and the pause screen don't need the full frame rate.
       maxFps: () => (pausedRef.current ? IDLE_FPS : settingsRef.current.fpsLimit),
@@ -666,14 +748,40 @@ export default function FPS() {
 
     return () => {
       loop.stop();
-      input.dispose();
       audio.dispose();
       audioRef.current = null;
-      inputRef.current = null;
       viewRef.current = null;
       view.dispose();
     };
-  }, [touchOnly]);
+  }, []);
+
+  // Input: mouse and keyboard (pointer lock), or the touch controls. Both
+  // report "locked" (playing) or not through the same callback.
+  useEffect(() => {
+    if (!mountRef.current) return;
+    const onLockChange = (locked) => {
+      if (locked) setLockFailed(false);
+      setPhase(p => (p === "menu" || p === "over" ? p : locked ? "playing" : "paused"));
+    };
+    const input = touch
+      ? createTouchInput(rootRef.current, { onLockChange, getPrefs: () => touchPrefsRef.current })
+      : createInput(mountRef.current, {
+        onLockChange,
+        onLockError: () => setLockFailed(true),
+        adsToggle: () => settingsRef.current.adsToggle,
+        // Only in a multiplayer match that is being played.
+        onChatKey: (channel) => {
+          if (!netRef.current || pausedRef.current) return false;
+          setChatOpen(channel);
+          return true;
+        },
+      });
+    inputRef.current = input;
+    return () => {
+      input.dispose();
+      inputRef.current = null;
+    };
+  }, [touch, error]);
 
   // The map's meshes: rebuilt (and the old ones disposed) when the map changes.
   useEffect(() => {
@@ -686,7 +794,7 @@ export default function FPS() {
       mapSceneRef.current = null;
       mapScene.dispose();
     };
-  }, [activeMapId, quality, touchOnly, error]);
+  }, [activeMapId, quality, error]);
 
   // Resolution and view distance follow the graphics setting immediately.
   useEffect(() => {
@@ -718,7 +826,7 @@ export default function FPS() {
       worldRef.current = null;
       world.dispose?.();
     };
-  }, [activeMapId, inGame, net, primary, difficulty, session, models, touchOnly, error]);
+  }, [activeMapId, inGame, net, primary, difficulty, session, models, touch, error]);
 
   useEffect(() => {
     mapSceneRef.current?.setDebug(showDebug);
@@ -745,11 +853,11 @@ export default function FPS() {
 
   // Rooms whose hosts are waiting, when the directory is configured.
   useEffect(() => {
-    if (phase !== "menu" || touchOnly) return;
+    if (phase !== "menu") return;
     let live = true;
     fetchOpenRooms("fps").then(rooms => { if (live) setOpenRooms(rooms); });
     return () => { live = false; };
-  }, [phase, touchOnly]);
+  }, [phase]);
 
   const enterNet = (s) => {
     setNet(s);
@@ -804,6 +912,7 @@ export default function FPS() {
     inputRef.current?.lock();
   };
   const resume = () => {
+    setEditingLayout(false);
     setLockFailed(false);
     inputRef.current?.lock();
   };
@@ -814,14 +923,22 @@ export default function FPS() {
     setPhase("menu");
   };
   const updateSetting = (key, value) => setSettings(s => ({ ...DEFAULT_SETTINGS, ...s, [key]: value }));
+  // Put a tab's settings (or all of them) back to their defaults. The phone
+  // controls, layout included, belong to the Controls tab.
+  const resetSettings = (group) => {
+    const defaults = initialSettings();
+    const keys = group === "all" ? Object.keys(defaults) : SETTING_GROUPS[group];
+    setSettings(prev => {
+      const next = { ...DEFAULT_SETTINGS, ...prev };
+      for (const k of keys) next[k] = defaults[k];
+      return next;
+    });
+    if (group === "all" || group === "controls") {
+      setStoredTouch(DEFAULT_TOUCH);
+      setGyroNote(null);
+    }
+  };
 
-  if (touchOnly) {
-    return (
-      <Notice title="Desktop required">
-        This game needs a mouse and keyboard. Open it on a desktop or laptop.
-      </Notice>
-    );
-  }
   if (error === "webgl") {
     return (
       <Notice title="WebGL unavailable">
@@ -836,11 +953,14 @@ export default function FPS() {
   const solo = hud;
   const s = settingsRef.current;
   return (
-    <div className="relative h-full w-full overflow-hidden bg-slate-950 select-none">
+    // On a phone a run covers the whole page (above the site's Back button),
+    // fullscreen or not: iPhone browsers don't let a page go fullscreen.
+    <div ref={rootRef} className={`${touch && inGame ? "fixed inset-0 z-[60]" : "relative h-full w-full"} overflow-hidden bg-slate-950 select-none`}
+      style={touch ? { WebkitTouchCallout: "none", touchAction: inGame ? "none" : undefined } : undefined}>
       <style>{FADE_KEYFRAMES}</style>
       <div ref={mountRef} className="absolute inset-0" />
 
-      <div className="pointer-events-none absolute top-4 right-4 text-right font-mono text-xs text-slate-300">
+      <div className={`pointer-events-none absolute top-4 text-right font-mono text-xs text-slate-300 ${touch && inGame ? "right-16" : "right-4"}`}>
         <div ref={fpsRef} className="whitespace-pre-line">– fps</div>
       </div>
 
@@ -861,10 +981,10 @@ export default function FPS() {
       {inGame && solo && !solo.dead && <DamageArcs damage={solo.damage} />}
       {inGame && solo && solo.feed.length > 0 && <KillFeed feed={solo.feed} />}
 
-      {inGame && solo && solo.marker.n > 0 && <HitMarker key={solo.marker.n} kind={solo.marker.kind} />}
-      {inGame && solo && solo.hurt > 0 && <HurtFlash key={solo.hurt} />}
-      {inGame && solo && !solo.dead && <WeaponHud hud={solo} />}
-      {inGame && solo && !solo.dead && <HealthHud hp={solo.hp} />}
+      {inGame && solo && solo.marker.n > 0 && <HitMarker key={`marker-${solo.marker.n}`} kind={solo.marker.kind} />}
+      {inGame && solo && solo.hurt > 0 && <HurtFlash key={`hurt-${solo.hurt}`} />}
+      {inGame && solo && !solo.dead && !touch && <WeaponHud hud={solo} />}
+      {inGame && solo && !solo.dead && <HealthHud hp={solo.hp} touch={touch} />}
       {inGame && solo && !netHud && (
         <div className="pointer-events-none absolute top-4 left-4 font-mono text-sm text-white/80 drop-shadow">
           <div>Score <span className="text-white font-bold">{solo.score}</span></div>
@@ -872,88 +992,181 @@ export default function FPS() {
         </div>
       )}
       {inGame && solo && !netHud && !solo.dead && <WaveHud hud={solo} />}
-      {inGame && solo && solo.banner.n > 0 && <Banner key={solo.banner.n} text={solo.banner.text} />}
+      {inGame && solo && solo.banner.n > 0 && <Banner key={`banner-${solo.banner.n}`} text={solo.banner.text} />}
       {inGame && solo?.message && (
-        <div key={solo.message.n} className="pointer-events-none absolute left-1/2 bottom-28 -translate-x-1/2 font-mono text-sm text-emerald-300 drop-shadow" style={fade(1500)}>
+        <div key={`message-${solo.message.n}`} className="pointer-events-none absolute left-1/2 bottom-28 -translate-x-1/2 font-mono text-sm text-emerald-300 drop-shadow" style={fade(1500)}>
           {solo.message.text}
         </div>
       )}
-      {phase === "playing" && solo?.prompt && (
+      {phase === "playing" && solo?.prompt && !touch && (
         <div className="pointer-events-none absolute left-1/2 top-[58%] -translate-x-1/2 rounded bg-black/50 px-3 py-1 font-mono text-sm text-white">
           {solo.prompt}
         </div>
       )}
       {phase !== "over" && solo?.dead && <DeathOverlay respawnIn={netHud ? solo.respawnIn : null} />}
-      {inGame && netHud && <NetHud net={netHud} />}
+      {inGame && netHud && <NetHud net={netHud} touch={touch} />}
       {inGame && netHud && (hud.chat?.length > 0 || chatOpen) && (
-        <ChatBox lines={hud.chat ?? []} open={chatOpen} selfTeam={netHud.team}
+        <ChatBox lines={hud.chat ?? []} open={chatOpen} selfTeam={netHud.team} touch={touch}
           onSend={(text) => net?.sendChat(text, chatOpen === "team")} onClose={() => setChatOpen(null)} />
       )}
       {inGame && netHud && phase !== "paused" && (netHud.showScores || netHud.match.state === "over") && <Scoreboard net={netHud} />}
+      {touch && (phase === "playing" || (phase === "paused" && editingLayout)) && inputRef.current?.controls === "touch" && (
+        <TouchControls input={inputRef.current} hud={solo} multiplayer={!!netHud} prefs={tp}
+          editing={editingLayout} onPrefs={(next) => setStoredTouch(next)} onDone={() => setEditingLayout(false)}
+          onPause={() => inputRef.current?.unlock()} onChat={(channel) => setChatOpen(channel)} />
+      )}
+      {touch && inGame && portrait && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-slate-950/95 p-8 text-center">
+          <div className="text-5xl">⟳</div>
+          <div className="text-lg font-semibold text-white">Turn your phone sideways</div>
+          <div className="text-sm text-slate-400">The game is played in landscape.</div>
+        </div>
+      )}
       {phase === "over" && result && (
         <GameOver result={result} mapName={current.name} onAgain={play} onQuit={quit} />
       )}
 
-      {phase === "paused" && (
-        <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60">
-          <div className="w-80 max-h-full overflow-y-auto rounded-xl bg-slate-900 border border-slate-700 p-5 space-y-4">
-            <h2 className="text-xl font-bold text-white text-center">{net ? "Menu" : "Paused"}</h2>
-            {net && (
-              <div className="rounded-lg bg-slate-800/70 border border-slate-700 p-3 space-y-2 text-center">
-                <div className="text-xs text-slate-400">Room code</div>
-                <div className="font-mono text-2xl tracking-widest text-white">{net.roomId}</div>
-                <CopyLink roomId={net.roomId} />
-                <div className="text-[11px] text-slate-500">The game keeps running while this menu is open.</div>
-              </div>
-            )}
-            {net && netHud && (
-              <div className="space-y-2">
-                <button onClick={() => net.setTeam(netHud.team === "a" ? "b" : "a")}
-                  className="w-full py-1.5 rounded-lg bg-slate-800 border border-slate-700 hover:border-slate-500 text-sm text-slate-200">
-                  Switch to {TEAM_NAME[netHud.team === "a" ? "b" : "a"]} team
+      {phase === "paused" && !editingLayout && (
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60 p-2">
+          <div className={`${touch ? "fps-touch-menu w-[min(36rem,100%)]" : "w-96"} max-h-full flex flex-col rounded-xl bg-slate-900 border border-slate-700`}>
+            <div className="p-4 pb-2 space-y-3">
+              <div className="flex items-center gap-3">
+                <h2 className="text-xl font-bold text-white">{net ? "Menu" : "Paused"}</h2>
+                <button onClick={resume} className="flex-1 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">
+                  Resume
                 </button>
-                <Segmented label="Primary for your next life" options={PRIMARIES.map(id => [id, WEAPONS[id].name])} value={primary}
-                  onChange={(id) => { setPrimary(id); net.setPrimary(id); }} />
               </div>
-            )}
-            {net?.role === "host" && netHud && <NextMap net={net} match={netHud.match} />}
-            <button onClick={resume} className="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold">
-              Resume
-            </button>
-            {lockFailed && (
-              <p className="text-xs text-amber-300 text-center">
-                The browser needs a moment after Esc before it lets the game take the mouse again. Click Resume again.
-              </p>
-            )}
-            <Slider label="Mouse sensitivity" value={s.sensitivity} min={0.2} max={3} step={0.05}
-              onChange={v => updateSetting("sensitivity", v)} format={v => v.toFixed(2)} />
-            <Slider label="Field of view" value={s.fov} min={60} max={100} step={1}
-              onChange={v => updateSetting("fov", v)} format={v => `${v}°`} />
-            <Slider label="Arrow-key turn speed" value={s.keyTurnSpeed} min={0.5} max={6} step={0.1}
-              onChange={v => updateSetting("keyTurnSpeed", v)} format={v => `${Math.round(v * 180 / Math.PI)}°/s`} />
-            <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-              <input type="checkbox" checked={s.invertY} onChange={e => updateSetting("invertY", e.target.checked)} />
-              Invert mouse Y
-            </label>
-            <Slider label="Volume" value={s.volume} min={0} max={1} step={0.05}
-              onChange={v => updateSetting("volume", v)} format={v => `${Math.round(v * 100)}%`} />
-            <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-              <input type="checkbox" checked={s.muted} onChange={e => updateSetting("muted", e.target.checked)} />
-              Mute
-            </label>
-            <GraphicsSettings s={s} update={updateSetting} antialiasNow={viewRef.current?.antialias} />
-            <div className="text-[11px] text-slate-500 leading-relaxed">
-              {CONTROLS.map(([k, v]) => <div key={k} className="flex justify-between"><span className="font-mono">{k}</span><span>{v}</span></div>)}
+              {lockFailed && !touch && (
+                <p className="text-xs text-amber-300 text-center">
+                  The browser needs a moment after Esc before it lets the game take the mouse again. Click Resume again.
+                </p>
+              )}
+              <div className="flex gap-1" role="tablist">
+                {MENU_TABS.map(([id, label]) => (
+                  <button key={id} role="tab" aria-selected={menuTab === id} onClick={() => setMenuTab(id)}
+                    className={`flex-1 py-1.5 rounded-md text-sm border transition-colors ${
+                      menuTab === id ? "border-indigo-400 bg-indigo-600/30 text-white" : "border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-500"}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <button onClick={quit} className="w-full py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200">
-              {net ? (net.role === "host" ? "Close room" : "Leave room") : "Quit to menu"}
-            </button>
+            <div className="px-4 pb-4 pt-1 space-y-4 overflow-y-auto">
+              {menuTab === "game" && (
+                <>
+                  {net && (
+                    <div className="rounded-lg bg-slate-800/70 border border-slate-700 p-3 space-y-2 text-center">
+                      <div className="text-xs text-slate-400">Room code</div>
+                      <div className="font-mono text-2xl tracking-widest text-white">{net.roomId}</div>
+                      <CopyLink roomId={net.roomId} />
+                      <div className="text-[11px] text-slate-500">The game keeps running while this menu is open.</div>
+                    </div>
+                  )}
+                  {net && netHud && (
+                    <div className="space-y-2">
+                      <button onClick={() => net.setTeam(netHud.team === "a" ? "b" : "a")}
+                        className="w-full py-1.5 rounded-lg bg-slate-800 border border-slate-700 hover:border-slate-500 text-sm text-slate-200">
+                        Switch to {TEAM_NAME[netHud.team === "a" ? "b" : "a"]} team
+                      </button>
+                      <Segmented label="Primary for your next life" options={PRIMARIES.map(id => [id, WEAPONS[id].name])} value={primary}
+                        onChange={(id) => { setPrimary(id); net.setPrimary(id); }} />
+                    </div>
+                  )}
+                  {net?.role === "host" && netHud && <NextMap net={net} match={netHud.match} />}
+                  <div className="text-[11px] text-slate-500 leading-relaxed">
+                    {(touch ? TOUCH_CONTROLS : CONTROLS).map(([k, v]) => <div key={k} className="flex justify-between gap-3"><span className="font-mono">{k}</span><span className="text-right">{v}</span></div>)}
+                  </div>
+                  <div className="text-[11px] text-slate-500">Settings are saved in this browser and kept for next time.</div>
+                  <ResetButton label="Reset all settings to default" onReset={() => resetSettings("all")} />
+                  <button onClick={quit} className="w-full py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200">
+                    {net ? (net.role === "host" ? "Close room" : "Leave room") : "Quit to menu"}
+                  </button>
+                </>
+              )}
+
+              {menuTab === "controls" && (
+                <>
+                  {touch ? (
+                    <Slider label="Look sensitivity" value={tp.lookSensitivity} min={0.2} max={4} step={0.05}
+                      onChange={v => setTouch({ lookSensitivity: v })} format={v => v.toFixed(2)} />
+                  ) : (
+                    <Slider label="Mouse sensitivity" value={s.sensitivity} min={0.2} max={3} step={0.05}
+                      onChange={v => updateSetting("sensitivity", v)} format={v => v.toFixed(2)} />
+                  )}
+                  <Slider label="Aiming sensitivity (× while aiming)" value={s.adsSensitivity} min={0.3} max={2} step={0.05}
+                    onChange={v => updateSetting("adsSensitivity", v)} format={v => `${v.toFixed(2)}×`} />
+                  {!touch && (
+                    <>
+                      <Check label="Right click toggles aiming (instead of hold)" checked={s.adsToggle} onChange={v => updateSetting("adsToggle", v)} />
+                      <Slider label="Arrow-key turn speed" value={s.keyTurnSpeed} min={0.5} max={6} step={0.1}
+                        onChange={v => updateSetting("keyTurnSpeed", v)} format={v => `${Math.round(v * 180 / Math.PI)}°/s`} />
+                    </>
+                  )}
+                  <Check label={touch ? "Invert look up/down" : "Invert mouse Y"} checked={s.invertY} onChange={v => updateSetting("invertY", v)} />
+                  {touch && (
+                    <>
+                      <div className="pt-2 border-t border-slate-700/70 text-xs font-semibold uppercase tracking-wide text-slate-400">Touch controls</div>
+                      <button onClick={() => setEditingLayout(true)}
+                        className="w-full py-2 rounded-lg bg-slate-800 border border-slate-600 hover:border-indigo-400 text-sm text-white">
+                        Customize layout (move and resize buttons)
+                      </button>
+                      <Slider label="Button size" value={tp.scale} min={SCALE[0]} max={SCALE[1]} step={0.05}
+                        onChange={v => setTouch({ scale: v })} format={v => `${Math.round(v * 100)}%`} />
+                      <Slider label="Button opacity" value={tp.opacity} min={OPACITY[0]} max={OPACITY[1]} step={0.05}
+                        onChange={v => setTouch({ opacity: v })} format={v => `${Math.round(v * 100)}%`} />
+                      <Check label="Left-handed (joystick on the right, Fire on the left)" checked={tp.mirrored} onChange={v => setTouch({ mirrored: v })} />
+                      <Segmented label="Joystick" options={[[false, "Follows your thumb"], [true, "Fixed in place"]]} value={tp.fixedStick}
+                        onChange={v => setTouch({ fixedStick: v })} />
+                      <Check label="Dragging Fire also turns the view" checked={tp.fireTurns} onChange={v => setTouch({ fireTurns: v })} />
+                      <Check label="Second Fire button on the other side" checked={tp.leftFire} onChange={v => setTouch({ leftFire: v })} />
+
+                      <div className="pt-2 border-t border-slate-700/70 text-xs font-semibold uppercase tracking-wide text-slate-400">Aim help</div>
+                      <Segmented label="Aim assist" options={[["off", "Off"], ["low", "Low"], ["standard", "Standard"]]} value={tp.assist}
+                        onChange={v => setTouch({ assist: v })} />
+                      <p className="text-[11px] text-slate-500 -mt-2">
+                        Off unless you choose it. Near an enemy you can see, looking slows down and the view leans toward them while you move a thumb.
+                        {net && netHud?.match.touchAssist === false && <span className="text-amber-300"> The host has turned it off in this room.</span>}
+                      </p>
+                      <Segmented label="Gyro aiming (tilt the phone)" options={[["off", "Off"], ["ads", "While aiming"], ["always", "Always"]]} value={tp.gyro}
+                        onChange={chooseGyro} />
+                      {gyroNote && <p className="text-[11px] text-amber-300 -mt-2">{gyroNote}</p>}
+                      {tp.gyro !== "off" && (
+                        <>
+                          <Slider label="Gyro sensitivity" value={tp.gyroSensitivity} min={0.2} max={4} step={0.05}
+                            onChange={v => setTouch({ gyroSensitivity: v })} format={v => v.toFixed(2)} />
+                          <Check label="Invert gyro" checked={tp.gyroInvert} onChange={v => setTouch({ gyroInvert: v })} />
+                        </>
+                      )}
+                    </>
+                  )}
+                  <ResetButton label={touch ? "Reset controls to default (layout too)" : "Reset controls to default"} onReset={() => resetSettings("controls")} />
+                </>
+              )}
+
+              {menuTab === "graphics" && (
+                <>
+                  <Slider label="Field of view" value={s.fov} min={60} max={100} step={1}
+                    onChange={v => updateSetting("fov", v)} format={v => `${v}°`} />
+                  <GraphicsSettings s={s} update={updateSetting} antialiasNow={viewRef.current?.antialias} />
+                  <ResetButton label="Reset graphics to default" onReset={() => resetSettings("graphics")} />
+                </>
+              )}
+
+              {menuTab === "sound" && (
+                <>
+                  <Slider label="Volume" value={s.volume} min={0} max={1} step={0.05}
+                    onChange={v => updateSetting("volume", v)} format={v => `${Math.round(v * 100)}%`} />
+                  <Check label="Mute" checked={s.muted} onChange={v => updateSetting("muted", v)} />
+                  <ResetButton label="Reset sound to default" onReset={() => resetSettings("sound")} />
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
 
       {phase === "menu" && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 w-[min(46rem,calc(100%-2rem))] rounded-xl bg-slate-900/85 border border-slate-700 p-3 backdrop-blur">
+        <div className={`${touch ? "fps-touch-menu " : ""}absolute bottom-4 left-1/2 -translate-x-1/2 w-[min(46rem,calc(100%-2rem))] max-h-[calc(100%-2rem)] overflow-y-auto rounded-xl bg-slate-900/85 border border-slate-700 p-3 backdrop-blur`}>
           <div className="flex flex-wrap gap-2">
             {MAPS.map(m => (
               <button
@@ -992,8 +1205,20 @@ export default function FPS() {
                 {id}
               </button>
             ))}
+            {TOUCH_SCREEN && (
+              <>
+                <span className="text-xs text-slate-400 ml-3 mr-1">Controls</span>
+                {CONTROL_OPTIONS.map(([id, label]) => (
+                  <button key={id} onClick={() => updateSetting("controls", id)}
+                    className={`px-3 py-1 rounded-md text-xs border transition-colors ${
+                      id === s.controls ? "border-indigo-400 bg-indigo-600/30 text-white" : "border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-500"}`}>
+                    {label}{id === "auto" && ` (${controls === "touch" ? "touch" : "mouse"})`}
+                  </button>
+                ))}
+              </>
+            )}
           </div>
-          <div className="mt-3 flex items-center justify-between gap-3">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
             <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
               <input type="checkbox" checked={showDebug} onChange={e => setShowDebug(e.target.checked)} />
               Show spawns &amp; nav grid

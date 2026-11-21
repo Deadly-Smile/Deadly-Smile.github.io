@@ -328,10 +328,99 @@ Replace the box figures and box guns with open-source models. This overrides the
 
 ---
 
+## Phase 3: Aim and phones
+
+### FPS-13: Aim
+**Depends on:** FPS-4, FPS-8
+
+Findings (2026-11-21): the loop ran a frame's simulation ticks before that frame's mouse movement was applied, so a shot left along the aim from before the latest movement — about 5° behind when tracking at 300°/s at 60 fps, while a body at 20 m is about 1.5° wide. And spread was uniform over the cone: rifle hip-fire while walking hit a torso at 10 m only 27% of the time.
+
+- **Look before simulating:** mouse and arrow-key look are applied at the start of each frame, before its ticks run (a hook in `engine/loop.js`), in single-player and multiplayer, so a click fires where the crosshair is.
+- **Spread clustered toward the centre**, with the same maximum cone (the crosshair still shows it). The shotgun keeps an even pattern.
+- **First-shot accuracy:** standing still on the ground with the gun rested (no bloom) halves hip-fire spread for weapons that bloom (SMG, rifle, pistol). Derived from existing state, so the wire format doesn't change.
+- **Zoom-matched sensitivity:** while zoomed, look speed is scaled by how much the image is actually magnified (`tan(fov·zoom/2) / tan(fov/2)`) instead of the zoom factor, so a flick moves the crosshair the same distance on screen at every zoom. Plus an "ADS sensitivity" slider.
+- **Recoil eased in** over a few frames instead of one jump (same total kick).
+- **Optional toggle aim** (right click toggles instead of hold), a setting; switching weapons drops it.
+- **Bots** fire the same guns, so they gain accuracy too: check their difficulty afterwards.
+
+**Acceptance:** a shot fired mid-flick goes where the crosshair is in that frame; tests cover the loop's order, the spread distribution, first-shot accuracy and the zoom scaling.
+
+**As built (2026-11-21):**
+- **Files:** `engine/aim.js` (pure, `aim.test.js`): `zoomLookScale`, `lookDelta`, `createRecoil`. `engine/loop.js` gained `beforeUpdate(frameDt)`; `game.js` and `netGame.js` moved look from `render()` into a new `aim(frameDt)`, which `FPS.jsx` calls through it. Spread and first-shot accuracy are in `engine/weapons.js`.
+- **Shown in the browser:** with a 200 px flick and a click dispatched in the same instant, the bullet hole now lands under the crosshair; on the previous code it landed about 25° to the side, where the view pointed before the flick.
+- **Bots are left as they were:** with the clustered spread and first-shot bonus they got 10–20% deadlier (bot-vs-bot kills per minute: easy 14.0 → 15.5, normal 21.0 → 23.8, hard 22.3 → 27.2; run-to-run noise is about ±0.5, from each bot's random sway phase). So bots (`ctx.bot`) keep the even spread and get no first-shot bonus; measured back at 14.1 / 21.2 / 22.5.
+- **Settings** (pause menu): "Aiming sensitivity (× while aiming)", 0.3–2×, and "Right click toggles aiming (instead of hold)". With toggle on, switching weapons (1–4, wheel, Q) lets go of it. Verified in the browser.
+- **Recoil** is paid out at 35/s (about 95% within 85 ms); same total kick, still applied after the tick's shots.
+- **Walking penalty unchanged:** with the clustered spread, rifle hip-fire while walking at 10 m now hits a torso about half the time instead of a quarter; left at that.
+
+### FPS-14: Playable on phones
+**Depends on:** FPS-13
+
+- **Detection:** a device with no fine pointer gets touch controls instead of "Desktop required"; touch laptops keep mouse and keyboard; a "Touch controls" setting overrides either way.
+- **Controls** as a second input source with the same interface as `input.js`: a floating joystick on the left (edge = sprint), drag anywhere on the right to look, a Fire button that also turns the view while held, buttons for jump, crouch (toggle), aim (toggle), reload, grenade, weapon slots, and context buttons for take gun, scores, chat, pause.
+- **Aim assist on touch only:** slowdown near an enemy plus a slight pull; Off / Low / Standard.
+- **Fit:** landscape only ("Rotate your phone" in portrait), fullscreen where allowed, no page scroll or pinch-zoom, safe-area insets, Play/Pause buttons instead of pointer lock, HUD and menus sized for ~390 px tall screens, Low graphics by default.
+- **Open questions:** gyro aiming (optional, off by default?) and auto-fire (left out unless wanted).
+
+**Acceptance:** a full single-player run and a multiplayer join are playable on a phone; joystick, look and aim-assist maths are tested in Node; touch is driven in a headless phone emulation.
+
+**As built (2026-11-21), first pass:**
+- **References:** the usual mobile-shooter layout (Call of Duty Mobile, Apex Legends Mobile, Arena Breakout control guides; Game Developer's "UX deep dive" on mobile FPS): floating left stick with sprint at the rim, drag-to-look on the right, a Fire button that also turns the view, a second Fire on the left for three-finger play, buttons of at least ~40–48 px.
+- **Files:** `engine/touch.js` (pure, `touch.test.js`): `controlsFor` (which controls), `stickFrom`, `stickKeys`, `TOUCH_LOOK_GAIN`. `touchInput.js`: the same interface as `input.js` (read, readWeapon, takeLook, keyLook, scoreboard, lock/unlock, setTyping) fed by `TouchControls.jsx`. `FPS.jsx` creates one input or the other (its own effect, so switching controls in the menu swaps it).
+- **Detection:** touch when the device has a touch screen and either a coarse main pointer or a mobile browser. A phone with a stylus reports a fine pointer too, which is probably why the old `any-pointer: fine` check let a phone start the desktop game with no way to move. Touch laptops keep mouse and keyboard. The menu has "Controls: Auto / Touch / Mouse & keys" on touch-screen devices.
+- **Layout (landscape):** left 45% of the screen is the joystick zone (the stick appears under the thumb; at rest a faint stick shows where); right side drag looks (×2.4 a mouse pixel, then the look sensitivity). Right cluster: FIRE (84 px, drag it to aim while firing), AIM and CROUCH toggles, R (reload), JUMP. A smaller FIRE at the left. Weapon slots along the bottom (tap to switch; switching drops aim), a "Take <gun>" button when one is underfoot, pause top right, and Team / Chat / Scores (hold) in multiplayer. Ammo above FIRE; HP moves to the top left and chat to the top centre (above the on-screen keyboard).
+- **Movement is 8-way:** the simulation and the network carry movement as on/off keys, so the stick picks one of 8 directions (dead zone 25%); pushed to the rim straight or diagonally forward, it sprints.
+- **Playing / paused:** no pointer lock on phones: Play and Resume start play (and ask for fullscreen and landscape lock; Android allows both, iPhone neither), the pause button or leaving fullscreen pauses. During a run the game covers the whole page (`fixed`, above the site's Back button) whether fullscreen or not. Held upright, a "Turn your phone sideways" screen covers the game. `Games.jsx` uses `100dvh` so the page fits under a phone's address bar.
+- **Phones start on Low graphics.** The pause menu hides the mouse-only settings and lists the touch controls.
+- **Verified in a headless phone emulation** (Chromium, Android user agent, 844×390, touch events through CDP): auto-detected touch, fullscreen on Play, stick moves the player, two thumbs move and look at once, FIRE spends a round, R reloads, tapping a slot switches, AIM toggles, pause/resume, the portrait screen, hosting a room, holding Scores, sending chat; no console errors. Desktop re-checked (toggle aim, flick shot).
+- **Also fixed:** the hit marker, hurt flash, banner and pickup message were siblings keyed by plain counters, so two could share a key (a React warning).
+- **Not done yet:** aim assist on touch, gyro aiming, auto-fire, moving/resizing buttons, left-handed layout. All but auto-fire are planned in FPS-15.
+
+### FPS-15: Customisable phone controls
+**Depends on:** FPS-14
+
+Asked for (2026-11-21): control options, moving and resizing buttons, aim help, and menus that work on a phone. Order: A → B → D → C (aim help last: it needs real-phone feedback most).
+
+**A. Touch control options** (pause menu → Controls)
+- Settings: button size (0.7–1.4×), button opacity, left-handed (mirrored: joystick right, FIRE left), fixed or floating joystick, a touch look sensitivity separate from the mouse one, "FIRE also turns the view" on/off, show/hide the left FIRE.
+- Saved on the device under their own key (`game:fps:touch`, versioned), apart from the desktop settings.
+- New pure `engine/touchLayout.js`: each control's default centre (as fractions of the screen, so a layout fits any phone) and size, and `resolveLayout(prefs, width, height)` → pixel positions with mirroring and scale applied and clamped on screen. `TouchControls.jsx` draws from it instead of fixed pixel offsets.
+
+**B. Move and resize buttons**
+- "Customize layout" in the Controls tab opens an editor over the game view: drag any control (FIRE, AIM, R, JUMP, CROUCH, the left FIRE, the joystick's resting spot, the weapon bar), tap one to select it and resize it with a slider, Reset to default, Done.
+- Saved as it changes; works with the mirrored layout (positions are stored unmirrored).
+
+**C. Aim help** (touch only)
+- **Aim assist** (Off / Low / Standard; off unless the player turns it on, changed from "default Standard" on 2026-11-21 at the user's request): when a visible enemy is near the crosshair, look slows down and the view is pulled gently toward their chest. The pull only acts while a thumb is moving (look, stick or fire), so it never aims on its own. New pure `engine/aimAssist.js`, applied in `aim()` in single-player and multiplayer (it only turns the view; the host still judges every shot).
+- **Host option** "Aim assist for touch players" (on by default), so a room can play without it; guests get it in the welcome/roster message.
+- **Gyro aiming** (Off / While aiming / Always, default Off), with sensitivity and invert. Reads `devicemotion` rotation rates and maps them for both landscape orientations; iPhone asks for motion permission when gyro is switched on (needs a tap). The mapping is a pure tested function; the feel needs a real phone (hence invert).
+
+**D. Phone-friendly menus**
+- Pause menu in tabs: Game (Resume, team, next life's gun, next map, Quit) / Controls / Graphics / Sound, on desktop too.
+- On phones: taller buttons, bigger slider thumbs, a wider dialog that fits a landscape phone with little scrolling; the main menu gets the same treatment.
+
+**Acceptance:** every option above changes the controls as described and survives a reload; a moved or resized button stays where it was put on another screen size (within the screen); aim assist slows and pulls only near a visible enemy and only while a thumb moves, and is off in rooms where the host turned it off; gyro turns the view the right way in both landscape orientations on a real phone. Tests: layout maths (moves, resizes, mirroring, clamping on small and large screens), aim assist (window, visibility, slowdown, pull, no overshoot, idle does nothing), gyro mapping. Checked in the headless phone emulation, then on a real phone over ngrok.
+
+**As built (2026-11-21):**
+- **Files:** `engine/touchLayout.js` (pure, `touchLayout.test.js`): `DEFAULT_TOUCH`, `touchPrefs()` (fills in and clamps stored values), `CONTROL_DEFAULTS`, `resolveLayout()`, `placeControl()`, `resizeControl()`, `resetLayout()`, `inStickZone()`. `engine/aimAssist.js` (pure, `aimAssist.test.js`, which also covers `gyroLook()` in `engine/touch.js`). `TouchControls.jsx` draws from the layout and holds the `LayoutEditor`. `touchInput.js` reads the preferences through `getPrefs()`. Stored under `game:fps:touch` (version 1).
+- **Pause menu** in tabs: Game (room code, team, next life's gun, next map, controls help, Quit) / Controls / Graphics (field of view and graphics) / Sound. Resume sits next to the title, always visible. On phones every button and slider is at least ~40 px tall, and the main menu gets the same.
+- **Controls tab on phones:** look sensitivity (touch's own), aiming sensitivity, invert; Customize layout; button size; opacity; left-handed; joystick follows the thumb or is fixed; dragging Fire turns the view; second Fire button; Aim help (aim assist Off/Low/Standard, off by default, gyro Off/While aiming/Always, gyro sensitivity and invert).
+- **Layout editor:** every control drawn where it sits; drag to move, the selected one resizes (60–160%), plus all-button size, opacity, left-handed, reset, and a button to move the editor's own panel to the bottom (so nothing gets stuck under it). Positions are stored as screen fractions, unmirrored.
+- **Fixed joystick:** the stick stays at its spot and is pushed relative to its centre wherever the thumb lands in the joystick half.
+- **Aim assist:** window `clamp(atan(0.9 / distance) × 2.2, 0.035, 0.16)` rad around a visible target's chest (72% of its height), within 70 m. Standard: look at 55% speed on target and a pull up to 0.9 rad/s; Low: 75% and 0.45 rad/s; both fade to nothing at the window's edge. The pull only acts while a thumb moved in the last 150 ms, the stick is pushed or Fire is held, and never turns past the target. Targets: living bots in single-player; living players of the other team in multiplayer.
+- **Host option** "Aim assist for phones" (on by default) in the match settings; `matchState().touchAssist` tells guests.
+- **Off by default:** stored as `assist` (default "off"). An earlier build stored `aimAssist` with "standard" as the default; `touchPrefs()` keeps only known keys, so that old value is dropped and a phone that saved it starts at Off, with the rest of its settings kept.
+- **Gyro:** `devicemotion` rotation rates mapped by the screen's angle (0/90/180/270), 1:1 at sensitivity 1, slowed like the rest when zoomed; "While aiming" only while AIM is on. iPhone's motion permission is asked when gyro is switched on (a tap); a refusal shows how to allow it.
+- **Verified in the headless phone emulation:** tabs; left-handed moves Fire from x 780 to 64 and the stick works on the right; the editor moved JUMP to exactly where it was dropped at 80%, and it stayed there after a reload; the host option is in the menu; the Aim help settings save; synthetic `devicemotion` events turn the view. No console errors. All Node tests pass.
+- **Reset to default** (added 2026-11-21): a reset button at the bottom of the Controls, Graphics and Sound tabs puts back that tab's settings (Controls also the phone controls, layout included), and "Reset all settings to default" on the Game tab puts back everything, including the Controls choice and the phone's Low graphics. Each asks for a second tap within 4 s. Graphics' defaults are the device's (Low on phones). Map, gun, bot level, name and match options aren't settings and aren't reset.
+- **Saved for next time:** everything above is kept in this browser's localStorage (`app:game:fps:settings`, `app:game:fps:touch`; the menu's choices under their own `game:fps:*` keys). Checked in the phone emulation: changes on three tabs survived a reload; resetting Controls left Graphics and Sound alone; Reset all survived a reload.
+- **Needs a real phone:** the gyro's direction (invert is there if it's backwards), aim-assist strength, and the button sizes and positions for real thumbs.
+
+---
+
 ## Out of scope (possible follow-ups)
 - Team voice chat (push-to-talk mesh per team).
 - Host migration.
-- Mobile/touch controls.
 - Co-op waves in multiplayer.
 
 ## Known risks

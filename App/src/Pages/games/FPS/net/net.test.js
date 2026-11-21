@@ -414,6 +414,7 @@ const aimPitch = (dist) => Math.atan2(1.1 - EYE_HEIGHT, dist);
   const sim = createHostSim(map, "Host", { rand: seededRand(5), options: { teamSize: 2, killLimit: 1000 } });
   const g = sim.add("guest");
   check("a map that isn't one is refused", [sim.setNextMap(null), sim.setNextMap({ boxes: [] })], [false, false]);
+  check("aim assist for phones is allowed unless the host turns it off", [sim.matchState().touchAssist, createHostSim(map, "Host", { options: { bots: false, touchAssist: false } }).matchState().touchAssist], [true, false]);
   check("picking the next map", [sim.setNextMap(warehouse), sim.matchState().nextMapId], [true, "warehouse"]);
   for (let i = 0; i < 120; i++) tick(sim);
   check("…doesn't change the match being played", [sim.map.id, sim.matchState().mapId, sim.match.state, sim.match.mapGen], ["arena", "arena", "playing", 0]);

@@ -91,19 +91,34 @@ export function createLoadout(primaryId = DEFAULT_PRIMARY) {
 
 export const activeWeapon = (l) => WEAPONS[l.slots[l.active]];
 
-// Direction offsets for one pellet: uniform over a cone of radius `spread`.
-function coneOffset(spread, rand) {
-  const r = spread * Math.sqrt(rand());
+// Direction offsets for one pellet inside a cone of radius `spread`. Bullets
+// cluster toward the centre (the radius is uniform, so half land within half
+// the cone) while the cone, which the crosshair shows, stays the same. A
+// shotgun's pellets spread evenly over it instead (uniform over the area).
+export function coneOffset(spread, rand, even = false) {
+  const r = spread * (even ? Math.sqrt(rand()) : rand());
   const a = rand() * Math.PI * 2;
   return [Math.cos(a) * r, Math.sin(a) * r];
 }
 
-// Current spread of the active gun. ctx: { speedFrac (0..1+), airborne }.
+// First-shot accuracy: hip-fire spread is multiplied by this when standing
+// still on the ground with the gun rested (no bloom left from firing), for
+// guns that bloom (SMG, rifle, pistol). The sniper's no-scope penalty and the
+// shotgun's pattern are left alone.
+//
+// Bots (ctx.bot) get neither this nor the clustered spread: their accuracy is
+// tuned by their own aim error (ai.js's DIFFICULTY), and these two would have
+// made every difficulty 10–20% deadlier.
+export const FIRST_SHOT = 0.5;
+const STILL = 0.1; // speedFrac below this counts as standing still
+
+// Current spread of the active gun. ctx: { speedFrac (0..1+), airborne, bot }.
 export function currentSpread(l, ctx = {}) {
   const w = activeWeapon(l);
   if (w.kind !== "gun") return 0;
   const s = w.spread;
-  return (l.ads ? s.ads : s.hip)
+  const rested = !ctx.bot && w.bloom > 0 && l.bloom === 0 && (ctx.speedFrac ?? 0) < STILL && !ctx.airborne;
+  return (l.ads ? s.ads : s.hip * (rested ? FIRST_SHOT : 1))
     + s.move * Math.min(1, ctx.speedFrac ?? 0) * (l.ads ? 0.5 : 1)
     + (ctx.airborne ? s.air : 0)
     + l.bloom;
@@ -205,7 +220,7 @@ export function stepWeapons(l, input, dt, ctx = {}, rand = Math.random) {
       if (ammo.mag > 0) {
         const spread = currentSpread(l, ctx);
         const pellets = [];
-        for (let i = 0; i < w.pellets; i++) pellets.push(coneOffset(spread, rand));
+        for (let i = 0; i < w.pellets; i++) pellets.push(coneOffset(spread, rand, w.pellets > 1 || !!ctx.bot));
         ammo.mag--;
         l.cooldown += interval;
         l.bloom = Math.min(w.bloomMax, l.bloom + w.bloom);

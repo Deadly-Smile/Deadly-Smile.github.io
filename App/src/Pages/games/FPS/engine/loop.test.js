@@ -87,6 +87,20 @@ function fakeEnv() {
   check("stopped", loop.running, false);
 }
 
+{
+  // Aim first: each frame's look is applied before its ticks run.
+  const env = fakeEnv();
+  const order = [];
+  const loop = createLoop({
+    beforeUpdate: (dt) => order.push(`aim ${Math.round(dt * 1000)}`), update: () => order.push("tick"), render: () => order.push("draw"), ...env,
+  });
+  loop.start();
+  env.tick(17);
+  env.tick(34);
+  check("each frame: aim, then its ticks, then draw", order, ["aim 17", "tick", "draw", "aim 34", "tick", "tick", "draw"]);
+  loop.stop();
+}
+
 // ─── Frame limit ─────────────────────────────────────────────────────────────
 {
   const env = fakeEnv();

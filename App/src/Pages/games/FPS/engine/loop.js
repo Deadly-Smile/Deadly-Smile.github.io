@@ -26,14 +26,17 @@ export function advance(accumulator, frameDt, step = STEP, maxSteps = MAX_STEPS_
 }
 
 // Drives `update(step)` at a fixed rate and `render(alpha, frameDt)` once per
-// animation frame. Pauses itself while the tab is hidden and resets the clock on
+// animation frame. `beforeUpdate(frameDt)` (optional) runs first in each
+// frame, before its ticks: aiming is applied there, so a shot fired in this
+// frame's ticks goes where the view points now, not where it pointed before
+// the latest mouse movement. Pauses itself while the tab is hidden and resets the clock on
 // return, so coming back doesn't count the hidden time as one huge frame.
 // `maxFps()` (optional, 0 = no limit) skips animation frames that come too
 // soon after the last one drawn: the time simply builds up, so the
 // simulation still runs in real time — just in fewer, bigger frames.
 // `now`/`raf`/`caf`/`doc` are injectable for tests; the defaults are the browser's.
 export function createLoop({
-  update, render, step = STEP, maxFps = () => 0,
+  update, render, beforeUpdate = () => {}, step = STEP, maxFps = () => 0,
   now = () => performance.now(),
   raf = (cb) => requestAnimationFrame(cb),
   caf = (id) => cancelAnimationFrame(id),
@@ -56,6 +59,7 @@ export function createLoop({
     const r = advance(acc, frameDt, step);
     last = t;
     acc = r.accumulator;
+    beforeUpdate(frameDt);
     for (let i = 0; i < r.steps; i++) update(step);
     render(r.alpha, frameDt);
     rafId = raf(frame);
