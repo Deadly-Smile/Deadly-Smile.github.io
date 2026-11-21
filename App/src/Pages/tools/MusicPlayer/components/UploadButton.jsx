@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
 import { parseBlob } from "music-metadata";
-import { putTrack } from "../db/db";
-import { isDuplicateUpload, stripExtension, isSupportedAudioFile, audioMimeFor, AUDIO_ACCEPT } from "../utils";
+import { putTrack, tracksStore } from "../db/db";
+import { createHashIndex } from "../../../../Utils/idbStore";
+import { stripExtension, isSupportedAudioFile, audioMimeFor, AUDIO_ACCEPT } from "../utils";
 import styles from "../MusicPlayer.module.css";
 
 const DURATION_LOAD_TIMEOUT_MS = 10000;
@@ -46,7 +47,7 @@ async function extractTags(file) {
   }
 }
 
-export default function UploadButton({ existingTracks, onTrackAdded, onError }) {
+export default function UploadButton({ onTrackAdded, onError }) {
   const inputRef = useRef(null);
   const [rejected, setRejected] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -59,15 +60,23 @@ export default function UploadButton({ existingTracks, onTrackAdded, onError }) 
     const files = Array.from(fileList);
     setUploading(true);
     const newRejections = [];
-    let tracksSoFar = existingTracks;
+    let index;
+    try {
+      index = await createHashIndex(tracksStore);
+    } catch (e) {
+      onError?.(e.message);
+      setUploading(false);
+      return;
+    }
 
     for (const file of files) {
       if (!isSupportedAudioFile(file)) {
         newRejections.push({ name: file.name, reason: "Unsupported file type" });
         continue;
       }
-      if (isDuplicateUpload(file, tracksSoFar)) {
-        newRejections.push({ name: file.name, reason: "Duplicate of an existing track" });
+      const { hash, duplicate } = await index.check(file);
+      if (duplicate) {
+        newRejections.push({ name: file.name, reason: `Duplicate of "${duplicate.title}"` });
         continue;
       }
 
@@ -92,6 +101,7 @@ export default function UploadButton({ existingTracks, onTrackAdded, onError }) 
         duration,
         dateAdded: Date.now(),
         albumId: null,
+        hash,
       };
 
       try {
@@ -101,7 +111,7 @@ export default function UploadButton({ existingTracks, onTrackAdded, onError }) 
         break; // stop processing remaining files; everything stored so far is kept
       }
 
-      tracksSoFar = [...tracksSoFar, track];
+      index.add(track);
       onTrackAdded(track);
     }
 

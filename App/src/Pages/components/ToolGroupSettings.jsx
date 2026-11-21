@@ -10,6 +10,7 @@ const DEFAULT_ASSIGNMENTS = {
   image:  "General",
   csv_editor: "General",
   music_player: "General",
+  pdf_viewer: "General",
   question_bank: "General",
   json:   "Dev",
   regex:  "Dev",

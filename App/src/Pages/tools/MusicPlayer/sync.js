@@ -1,6 +1,6 @@
-// Pure merge helpers for P2P library sync — hash-based track dedup, name-based
-// album/playlist dedup. Additive only: never overwrites existing local data,
-// mirroring the merge philosophy of QuestionBank's dedupe.js/importBank.
+// Music-specific pure merge helpers for P2P library sync. Hash-based track
+// dedup is generic (shared/fileSync planFileSync); albums/playlists dedupe by
+// name here. Additive only: never overwrites existing local data.
 
 export function trackToManifestEntry(track) {
   return {
@@ -15,25 +15,6 @@ export function trackToManifestEntry(track) {
     size: track.fileBlob.size,
     mime: track.fileBlob.type,
   };
-}
-
-// Track ids are crypto.randomUUID() on every device, so a track that's new to
-// this device can keep its remote id as-is — only duplicates (matched by
-// content hash, never by id) need remapping to the id already used locally.
-export function planTrackSync(manifestTracks, localTracksWithHash) {
-  const localByHash = new Map(localTracksWithHash.map((t) => [t.hash, t.id]));
-  const needed = [];
-  const idMap = new Map();
-  for (const remote of manifestTracks) {
-    const localId = localByHash.get(remote.hash);
-    if (localId) {
-      idMap.set(remote.id, localId);
-    } else {
-      needed.push(remote);
-      idMap.set(remote.id, remote.id);
-    }
-  }
-  return { needed, idMap };
 }
 
 function remapIds(ids, idMap) {
