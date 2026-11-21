@@ -7,7 +7,7 @@ import { createPlayer, stepPlayer, look, eyeHeight, WALK_SPEED } from "./engine/
 import { createLoadout, stepWeapons, activeWeapon, currentSpread, WEAPONS } from "./engine/weapons.js";
 import { relativeAngle } from "./engine/hud.js";
 import { createGrenade, stepGrenade } from "./engine/projectile.js";
-import { raycastWorld, EYE_HEIGHT } from "./engine/geometry.js";
+import { raycastWorld, lineOfSight, EYE_HEIGHT } from "./engine/geometry.js";
 import {
   createHealth, applyDamage, stepHealth, raycastActors,
   shotDamage, meleeDamage, explosionDamage,
@@ -22,9 +22,9 @@ import { createActorMeshes } from "./render/actors.js";
 import { createCharacters } from "./render/characters.js";
 import { createPickupMeshes } from "./render/pickups.js";
 import { qualityOf } from "./engine/quality.js";
+import { lookDelta, createRecoil, zoomLookScale } from "./engine/aim.js";
+import { aimAssist, assistTurn } from "./engine/aimAssist.js";
 
-// Radians of turn per pixel of mouse movement at sensitivity 1.
-const MOUSE_RADIANS_PER_PX = 0.0022;
 // Grenades leave the hand a little above the aim line.
 const THROW_LIFT = 0.18;
 const GAME_OVER_DELAY = 2;     // s of death camera before the results
@@ -80,6 +80,7 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
   let deathCam = 0; // 0 → 1 as the camera pulls out to the body
   let eye = eyeHeight(player);
   let zoom = 1; // current FOV multiplier (eases toward the weapon's ADS zoom)
+  const recoil = createRecoil();
   let overIn = null; // s until the results screen, once dead
 
   // Run stats and HUD feedback (counters let React restart an animation).
@@ -100,6 +101,8 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
   // height the camera uses, not the instant one, so crouching mid-fight
   // doesn't shift shots away from the crosshair.
   const eyePos = () => [player.pos[0], player.pos[1] + eye, player.pos[2]];
+  // What aim assist may help with: the living bots.
+  const assistTargets = () => bots.filter(b => !b.health.dead).map(b => ({ pos: b.pos, height: b.height }));
 
   // Pickup messages (and their sound).
   const say = (text) => {
@@ -291,7 +294,7 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
       if (Math.hypot(bot.pos[0] - player.pos[0], bot.pos[2] - player.pos[2]) < BOT_STEP_RANGE) {
         footsteps(bot, dt, () => sfx.step(bot.pos, bot.crouched));
       }
-      const ctx = { speedFrac: Math.hypot(bot.vel[0], bot.vel[2]) / WALK_SPEED, airborne: !bot.onGround };
+      const ctx = { speedFrac: Math.hypot(bot.vel[0], bot.vel[2]) / WALK_SPEED, airborne: !bot.onGround, bot: true };
       const { events } = stepWeapons(bot.loadout, weapon, dt, ctx);
       for (const e of events) {
         if (e.type !== "shot") continue;
@@ -395,7 +398,8 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
         // Recoil moves the view only after this tick's shots have used the aim
         // the player saw — otherwise every bullet includes its own kick and
         // lands above the crosshair (very visible through the sniper scope).
-        look(player, kick[0], -kick[1]);
+        // It's eased in over the next few frames (see aim()).
+        recoil.add(kick[0], -kick[1]);
         stepHealth(player.health, dt);
         gunPrompt = pickups(move.use);
         stepWaveDirector(dt);
@@ -415,25 +419,52 @@ export function createGame({ map, view, input, getSettings, isPaused, primary, d
       }
     },
 
-    // Look is applied per frame, not per tick, so aiming is never quantised
-    // to the simulation rate. Position is interpolated between the last two
-    // ticks by `alpha` so movement stays smooth on high-refresh displays.
+    // Look is applied once per frame, before the frame's ticks (see loop.js),
+    // so aiming is never quantised to the simulation rate and a shot fired
+    // in those ticks goes where the crosshair is now.
+    aim(frameDt) {
+      const mouse = input.takeLook();
+      const keys = input.keyLook();
+      zoom += ((loadout.ads ? activeWeapon(loadout).adsZoom : 1) - zoom) * Math.min(1, frameDt * 14);
+      if (player.health.dead) recoil.clear();
+      if (isPaused() || player.health.dead) return;
+      const settings = getSettings();
+      // Touch input has its own look sensitivity.
+      const sensitivity = input.lookSensitivity?.() ?? settings.sensitivity;
+      let [yaw, pitch] = lookDelta({ mouse, keys }, { ...settings, sensitivity }, { zoom, fov: settings.fov, ads: loadout.ads }, frameDt);
+      // Gyro (touch): the phone's turn, slowed like the rest when zoomed in.
+      const [gyroYaw, gyroPitch] = input.takeGyro?.() ?? [0, 0];
+      const zoomScale = zoomLookScale(zoom, settings.fov);
+      yaw += gyroYaw * zoomScale;
+      pitch += gyroPitch * zoomScale;
+      // Aim assist (touch only): slower look near a visible enemy, and a
+      // gentle pull toward them while a thumb is busy.
+      let pull = [0, 0];
+      const level = input.assistLevel?.();
+      if (level && level !== "off" && true) {
+        const from = eyePos();
+        const a = aimAssist({
+          eye: from, yaw: player.yaw, pitch: player.pitch, targets: assistTargets(), level,
+          visible: (point) => lineOfSight(from, point, map.boxes),
+        });
+        if (a) {
+          yaw *= a.slow;
+          pitch *= a.slow;
+          if (input.assistActive()) pull = assistTurn(a, frameDt);
+        }
+      }
+      const [kickYaw, kickPitch] = recoil.take(frameDt);
+      look(player, yaw + kickYaw - pull[0], pitch + kickPitch - pull[1]);
+    },
+
+    // Position is interpolated between the last two ticks by `alpha` so
+    // movement stays smooth on high-refresh displays.
     render(alpha, frameDt) {
       const { camera } = view;
       const paused = isPaused();
       const dead = player.health.dead;
-      const [dx, dy] = input.takeLook();
       const settings = getSettings();
       const w = activeWeapon(loadout);
-      zoom += ((loadout.ads ? w.adsZoom : 1) - zoom) * Math.min(1, frameDt * 14);
-      if (!paused && !dead) {
-        // Slower mouse when zoomed in, so the scope isn't twitchy.
-        const k = MOUSE_RADIANS_PER_PX * settings.sensitivity * zoom;
-        const [kx, ky] = input.keyLook();
-        const turn = settings.keyTurnSpeed * zoom * Math.min(frameDt, 0.1);
-        const pitchSign = settings.invertY ? -1 : 1;
-        look(player, dx * k + kx * turn, (dy * k + ky * turn) * pitchSign);
-      }
       const fov = settings.fov * zoom;
       if (Math.abs(camera.fov - fov) > 0.01) {
         camera.fov = fov;

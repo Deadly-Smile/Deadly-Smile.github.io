@@ -24,7 +24,8 @@ const MAX_MOUSE_JUMP = 400;
 const CHAT_KEYS = { Enter: "all", NumpadEnter: "all", KeyY: "team" };
 const editable = (el) => el instanceof HTMLElement && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
 
-export function createInput(lockTarget, { onLockChange, onLockError, onChatKey } = {}) {
+// adsToggle(): true when right click toggles aiming instead of holding it.
+export function createInput(lockTarget, { onLockChange, onLockError, onChatKey, adsToggle = () => false } = {}) {
   const down = new Set();
   let typing = false;
   let jumpQueued = false; // a key press, not a held key: one jump per press
@@ -53,6 +54,10 @@ export function createInput(lockTarget, { onLockChange, onLockError, onChatKey }
     scroll = 0;
   };
 
+  // Switching weapons lets go of a toggled aim.
+  const dropToggledAim = () => {
+    if (adsToggle()) adsHeld = false;
+  };
   const onKeyDown = (e) => {
     if (!isLocked() || typing || editable(e.target)) return;
     // Opening chat: no default either, or the key would land in the box.
@@ -65,8 +70,13 @@ export function createInput(lockTarget, { onLockChange, onLockError, onChatKey }
       if (e.code === "Space") jumpQueued = true;
       else if (e.code === "KeyE") useQueued = true;
       else if (e.code === "KeyR") reloadQueued = true;
-      else if (e.code === "KeyQ") lastQueued = true;
-      else if (/^Digit[1-4]$/.test(e.code)) slotQueued = Number(e.code[5]) - 1;
+      else if (e.code === "KeyQ") {
+        lastQueued = true;
+        dropToggledAim();
+      } else if (/^Digit[1-4]$/.test(e.code)) {
+        slotQueued = Number(e.code[5]) - 1;
+        dropToggledAim();
+      }
     }
     down.add(e.code);
   };
@@ -75,16 +85,19 @@ export function createInput(lockTarget, { onLockChange, onLockError, onChatKey }
     // A click mustn't fire, nor take the focus away from the chat box.
     if (typing) return e.preventDefault();
     if (e.button === 0) fireHeld = fireQueued = true;
-    else if (e.button === 2) adsHeld = true;
+    else if (e.button === 2) adsHeld = adsToggle() ? !adsHeld : true;
   };
   const onMouseUp = (e) => {
     if (e.button === 0) fireHeld = false;
-    else if (e.button === 2) adsHeld = false;
+    else if (e.button === 2 && !adsToggle()) adsHeld = false;
   };
   const onWheel = (e) => {
     if (!isLocked()) return;
     e.preventDefault();
-    if (e.deltaY) scroll = Math.sign(e.deltaY);
+    if (e.deltaY) {
+      scroll = Math.sign(e.deltaY);
+      dropToggledAim();
+    }
   };
   const onContextMenu = (e) => {
     if (isLocked()) e.preventDefault();

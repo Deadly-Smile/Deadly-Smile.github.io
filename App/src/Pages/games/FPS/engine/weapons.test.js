@@ -1,7 +1,7 @@
 // No test framework is configured in this project (see CLAUDE.md) — this is a
 // plain script exercising weapons, grenades and world raycasts. Run with:
 //   node src/Pages/games/FPS/engine/weapons.test.js
-import { WEAPONS, PRIMARIES, createLoadout, stepWeapons, activeWeapon, currentSpread, damageAt } from "./weapons.js";
+import { WEAPONS, PRIMARIES, createLoadout, stepWeapons, activeWeapon, currentSpread, damageAt, coneOffset, FIRST_SHOT } from "./weapons.js";
 import { createGrenade, stepGrenade } from "./projectile.js";
 import { raycastWorld, bodyBox, overlapsAny } from "./geometry.js";
 import { box } from "../maps/build.js";
@@ -157,6 +157,36 @@ check("loadout slots", createLoadout("smg").slots, ["smg", "pistol", "knife", "g
 }
 
 // ─── Spread, recoil, damage ──────────────────────────────────────────────────
+{
+  // Bullets cluster toward the middle of the cone; shotgun pellets don't.
+  let seed = 7;
+  const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const radii = (even) => Array.from({ length: 20000 }, () => Math.hypot(...coneOffset(1, rand, even)));
+  const inner = (rs) => rs.filter(x => x < 0.5).length / rs.length;
+  const bullets = radii(false);
+  const pellets = radii(true);
+  check("bullets: about half land within half the cone", Math.abs(inner(bullets) - 0.5) < 0.02, true);
+  check("pellets: about a quarter (spread evenly over the area)", Math.abs(inner(pellets) - 0.25) < 0.02, true);
+  check("…and none outside it", Math.max(...bullets, ...pellets) <= 1, true);
+
+  // First-shot accuracy: standing still with the gun rested.
+  const l = createLoadout("rifle");
+  const still = { speedFrac: 0, airborne: false };
+  check("a rested rifle's first shot from the hip is tighter", currentSpread(l, still), WEAPONS.rifle.spread.hip * FIRST_SHOT);
+  check("…but not while walking or in the air", [currentSpread(l, { speedFrac: 0.5 }) > WEAPONS.rifle.spread.hip, currentSpread(l, { airborne: true }) > WEAPONS.rifle.spread.hip], [true, true]);
+  l.bloom = 0.001;
+  check("…nor right after firing (bloom left)", currentSpread(l, still) > WEAPONS.rifle.spread.hip, true);
+  l.bloom = 0;
+  l.ads = true;
+  check("aiming down sights is unchanged", currentSpread(l, still), WEAPONS.rifle.spread.ads);
+  const sniper = createLoadout("sniper");
+  const shotgun = createLoadout("shotgun");
+  check("the sniper's no-scope and the shotgun's pattern are left alone", [currentSpread(sniper, still), currentSpread(shotgun, still)], [WEAPONS.sniper.spread.hip, WEAPONS.shotgun.spread.hip]);
+  const pistol = createLoadout("pistol");
+  pistol.active = pistol.slots.indexOf("pistol");
+  check("the pistol gets it too", currentSpread(pistol, still), WEAPONS.pistol.spread.hip * FIRST_SHOT);
+  check("bots don't (their accuracy is their aim error)", currentSpread(createLoadout("rifle"), { ...still, bot: true }), WEAPONS.rifle.spread.hip);
+}
 {
   const l = createLoadout("rifle");
   const hip = currentSpread(l);

@@ -32,7 +32,7 @@ export function runCommand(p, cmd, boxes) {
   body.pitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, cmd.pitch));
   if (p.dead) return NOTHING;
   stepPlayer(body, { ...cmd.input, ads: loadout.ads }, STEP, boxes);
-  const ctx = { speedFrac: Math.hypot(body.vel[0], body.vel[2]) / WALK_SPEED, airborne: !body.onGround };
+  const ctx = { speedFrac: Math.hypot(body.vel[0], body.vel[2]) / WALK_SPEED, airborne: !body.onGround, bot: !!p.bot };
   return stepWeapons(loadout, cmd.weapon, STEP, ctx, seededRand(cmd.seq * 2654435761 + p.id));
 }
 

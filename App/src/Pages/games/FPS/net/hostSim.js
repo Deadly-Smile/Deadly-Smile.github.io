@@ -47,7 +47,8 @@ export const INTERMISSION = 10;      // s between matches
 export const TEAMS = ["a", "b"];
 export const TEAM_MAX = MAX_PLAYERS / 2;
 // What the host can set for a match.
-export const DEFAULT_OPTIONS = { teamSize: 2, bots: true, difficulty: "normal", killLimit: 20, minutes: 10, friendlyFire: false };
+// touchAssist: players on phones may use aim assist (it only turns their own view).
+export const DEFAULT_OPTIONS = { teamSize: 2, bots: true, difficulty: "normal", killLimit: 20, minutes: 10, friendlyFire: false, touchAssist: true };
 const BOT_NAMES = ["Vega", "Rook", "Onyx", "Lynx", "Halo", "Echo", "Dune", "Blitz"];
 const HISTORY_MS = 600;
 const BUDGET_MAX = 8;        // commands a player may have saved up
@@ -377,7 +378,7 @@ export function createHostSim(firstMap, hostName, { hostPrimary, rand = Math.ran
     matchState: () => ({
       state: match.state, timeLeft: Math.max(0, Math.ceil(match.timeLeft)), scores: { ...match.scores },
       winner: match.winner, restartIn: Math.ceil(match.restartIn), killLimit: opts.killLimit,
-      ended: match.ended, mapId: map.id, nextMapId: nextMap.id, mapGen: match.mapGen,
+      ended: match.ended, mapId: map.id, nextMapId: nextMap.id, mapGen: match.mapGen, touchAssist: opts.touchAssist !== false,
     }),
     // A person changes sides (if there's room): they respawn with their new team.
     setTeam(id, team) {

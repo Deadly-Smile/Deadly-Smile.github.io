@@ -10,20 +10,20 @@
 // here are for show.
 import { look, eyeHeight, WALK_SPEED } from "./engine/player.js";
 import { activeWeapon, currentSpread, WEAPONS } from "./engine/weapons.js";
-import { raycastWorld } from "./engine/geometry.js";
+import { raycastWorld, lineOfSight } from "./engine/geometry.js";
 import { raycastActors } from "./engine/damage.js";
 import { nearDrop } from "./engine/pickups.js";
 import { relativeAngle } from "./engine/hud.js";
 import { qualityOf } from "./engine/quality.js";
 import { direction } from "./net/command.js";
+import { lookDelta, createRecoil, zoomLookScale } from "./engine/aim.js";
+import { aimAssist, assistTurn } from "./engine/aimAssist.js";
 import { createViewModel } from "./render/viewModel.js";
 import { createEffects } from "./render/effects.js";
 import { createActorMeshes } from "./render/actors.js";
 import { createCharacters } from "./render/characters.js";
 import { createPickupMeshes } from "./render/pickups.js";
 
-// Radians of turn per pixel of mouse movement at sensitivity 1.
-const MOUSE_RADIANS_PER_PX = 0.0022;
 const NO_INPUT = { forward: false, back: false, left: false, right: false, jump: false, sprint: false, crouch: false, ads: false };
 const NO_WEAPON = { fire: false, ads: false, reload: false, slot: null, scroll: 0, lastWeapon: false };
 // A prediction correction is eased in at this rate (1/s); a jump bigger than
@@ -64,6 +64,7 @@ export function createNetGame({ map, view, input, getSettings, isPaused, models 
   let drops = [];
   let eye = eyeHeight(player);
   let zoom = 1;
+  const recoil = createRecoil();
   let stepDist = 0;
   const offset = [0, 0, 0]; // where the view still lags behind a correction
 
@@ -78,6 +79,9 @@ export function createNetGame({ map, view, input, getSettings, isPaused, models 
 
   const scoped = () => !!activeWeapon(loadout).scope && loadout.ads && zoom < 0.5;
   const eyePos = (a = player, h = eye) => [a.pos[0], a.pos[1] + h, a.pos[2]];
+  // What aim assist may help with: living players on the other team, as
+  // drawn last frame. The host can switch assist off for the room.
+  const assistTargets = () => drawn.filter(a => !a.health.dead && a.team !== teamOf(session.selfId)).map(a => ({ pos: a.pos, height: a.height }));
 
   // A ray for show: bullet hole or blood puff where it lands; returns the end.
   function cosmeticRay(origin, d, range, selfId) {
@@ -116,7 +120,8 @@ export function createNetGame({ map, view, input, getSettings, isPaused, models 
       else if (e.type === "empty") sfx.empty();
       else if (e.type === "switch") sfx.draw();
     }
-    look(player, kick[0], -kick[1]);
+    // Eased in over the next few frames (see aim()).
+    recoil.add(kick[0], -kick[1]);
   }
 
   // What the host says happened.
@@ -211,21 +216,49 @@ export function createNetGame({ map, view, input, getSettings, isPaused, models 
       if (damageFrom.length) damageFrom = damageFrom.filter(d => (d.left -= dt) > 0);
     },
 
+    // Once per frame, before the frame's ticks (see loop.js): the commands
+    // those ticks send carry the view as it is now.
+    aim(frameDt) {
+      const mouse = input.takeLook();
+      const keys = input.keyLook();
+      const { dead } = session.self();
+      zoom += ((loadout.ads && !dead ? activeWeapon(loadout).adsZoom : 1) - zoom) * Math.min(1, frameDt * 14);
+      if (dead) recoil.clear();
+      if (isPaused() || dead) return;
+      const settings = getSettings();
+      // Touch input has its own look sensitivity.
+      const sensitivity = input.lookSensitivity?.() ?? settings.sensitivity;
+      let [yaw, pitch] = lookDelta({ mouse, keys }, { ...settings, sensitivity }, { zoom, fov: settings.fov, ads: loadout.ads }, frameDt);
+      // Gyro (touch): the phone's turn, slowed like the rest when zoomed in.
+      const [gyroYaw, gyroPitch] = input.takeGyro?.() ?? [0, 0];
+      const zoomScale = zoomLookScale(zoom, settings.fov);
+      yaw += gyroYaw * zoomScale;
+      pitch += gyroPitch * zoomScale;
+      // Aim assist (touch only): slower look near a visible enemy, and a
+      // gentle pull toward them while a thumb is busy.
+      let pull = [0, 0];
+      const level = input.assistLevel?.();
+      if (level && level !== "off" && session.match.touchAssist !== false) {
+        const from = eyePos();
+        const a = aimAssist({
+          eye: from, yaw: player.yaw, pitch: player.pitch, targets: assistTargets(), level,
+          visible: (point) => lineOfSight(from, point, map.boxes),
+        });
+        if (a) {
+          yaw *= a.slow;
+          pitch *= a.slow;
+          if (input.assistActive()) pull = assistTurn(a, frameDt);
+        }
+      }
+      const [kickYaw, kickPitch] = recoil.take(frameDt);
+      look(player, yaw + kickYaw - pull[0], pitch + kickPitch - pull[1]);
+    },
+
     render(alpha, frameDt) {
       const { camera } = view;
-      const paused = isPaused();
       const settings = getSettings();
       const { dead } = session.self();
       const w = activeWeapon(loadout);
-      const [dx, dy] = input.takeLook();
-      zoom += ((loadout.ads && !dead ? w.adsZoom : 1) - zoom) * Math.min(1, frameDt * 14);
-      if (!paused && !dead) {
-        const k = MOUSE_RADIANS_PER_PX * settings.sensitivity * zoom;
-        const [kx, ky] = input.keyLook();
-        const turn = settings.keyTurnSpeed * zoom * Math.min(frameDt, 0.1);
-        const pitchSign = settings.invertY ? -1 : 1;
-        look(player, dx * k + kx * turn, (dy * k + ky * turn) * pitchSign);
-      }
       const fov = settings.fov * zoom;
       if (Math.abs(camera.fov - fov) > 0.01) {
         camera.fov = fov;
